@@ -4,6 +4,7 @@ const mongoose=require("mongoose");
 const patientRoute=require("./controller/patientRoute");
 const AdminRoute=require("./controller/AdminRoute");
 const DoctorRoute=require("./controller/DoctorRoute");
+const QueryRoute=require("./controller/QueryRoute");
 const bodyParser=require("body-parser");
 const cors=require("cors");
 
@@ -22,6 +23,7 @@ app.use(cors());
 app.use("/patientRoute",patientRoute);
 app.use("/DoctorRoute",DoctorRoute);
 app.use("/AdminRoute",AdminRoute);
+app.use("/QueryRoute",QueryRoute);
 
 app.listen(4000,()=>{
     console.log("Server started at 4000");

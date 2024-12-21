@@ -1,5 +1,6 @@
 const express = require("express");
 const ScreeningTestQuestionSchema = require("../model/ScreeningTestQuestionSchema");
+const ScreeningTestSchema = require("../model/ScreeningTestSchema");
 
 const ScreeningTestRoute = express.Router();
 
@@ -53,6 +54,34 @@ ScreeningTestRoute.post("/add", (req, res) => {
             return res.status(500).json({ message: "Failed to add question" });
         }
         res.status(201).json(savedQuestion); // Return the saved question
+    });
+});
+
+// POST Route to add a new screening test record
+ScreeningTestRoute.post("/addScreenTestData", (req, res) => {
+    const { patient_id, answers } = req.body;
+
+    if (!patient_id || !answers) {
+        return res.status(400).json({ message: "Patient ID and answers are required." });
+    }
+
+    const updateData = {};
+    answers.forEach((answer, index) => {
+        updateData[index + 1] = answer;  // Mapping answers to question numbers
+    });
+
+    // Create a new test record each time
+    const newTestRecord = new ScreeningTestSchema({
+        patient_id,
+        DateOfTest: new Date(),
+        ...updateData
+    });
+
+    newTestRecord.save((err, savedRecord) => {
+        if (err) {
+            return res.status(500).json({ message: "Failed to save screening test record" });
+        }
+        res.status(201).json(savedRecord);  // Respond with the saved record
     });
 });
 

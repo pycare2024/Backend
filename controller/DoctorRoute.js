@@ -35,36 +35,57 @@ DoctorRoute.post("/doctorlogin", async (req, res) => {
     const { loginId, password } = req.body;
 
     try {
-        const doctor = await DoctorSchema.findOne({ loginId });
+        const doctor = await DoctorSchema.findOne({ loginId:loginId, password:password });
 
-        if (doctor) {
-            const passwordMatch = await bcrypt.compare(password, doctor.password);
-            if (passwordMatch) {
+        // console.log(doctor.password);
+        if (doctor)
+            {
                 return res.json({
                     message: "Login successful",
                     success: true,
-                    doctor: { name: doctor.Name, id: doctor.id },
+                    doctor: { name: doctor.Name, id: doctor.id }
                 });
             } else {
-                return res.status(401).json({ message: "Invalid password", success: false });
+                return res.status(401).json({ message: "Invalid loginId or password", success: false });
             }
-        } else {
-            return res.status(401).json({ message: "Invalid login ID", success: false });
-        }
-    } catch (error) {
-        return res.status(500).json({ message: "Server error", success: false });
+    } 
+    catch(error)
+    {
+        return res.status(500).json({message:"Server error",success:false});
     }
 });
+
+DoctorRoute.post("/verifyCredentials",async(req,res)=>{
+    const {loginId , Mobile, dob} = req.body;
+
+    try{
+        const doctor=await DoctorSchema.findOne({loginId,Mobile,dob});
+
+        if(doctor)
+            {
+                return res.json({success : true, message: "Credentials verified successfully"});
+
+            }
+            else
+            {
+                return res.status(401).json({ success: false, message: "Invalid credentials, please check and try again." });
+            }
+    }
+    catch(error)
+    {
+        return res.status(500).json({ success: false, message: "Server error, please try again." });
+    }
+});
+
 
 // Reset password
 DoctorRoute.post("/resetPassword", async (req, res) => {
     const { loginId, newPassword } = req.body;
 
     try {
-        const hashedPassword = await bcrypt.hash(newPassword, 10);
         const doctor = await DoctorSchema.findOneAndUpdate(
             { loginId },
-            { password: hashedPassword },
+            { password: newPassword },
             { new: true }
         );
 

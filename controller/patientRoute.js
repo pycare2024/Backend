@@ -120,7 +120,7 @@ patientRoute.get("/check/:phoneNumber", async (req, res) => {
         const patient = await patientSchema.findOne({ Mobile: phoneNumber }); // Match `Mobile` field in schema
         if (patient) {
             // Patient found, return patient ID
-            return res.status(200).json({message: "Patient already registered", patientId: patient._id , patientName:patient.Name});
+            return res.status(200).json({ message: "Patient already registered", patientId: patient._id, patientName: patient.Name });
         } else {
             return res.status(404).json({ message: "Patient not registered" });
         }
@@ -156,6 +156,67 @@ patientRoute.post("/register", async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Error registering patient" });
+    }
+});
+
+// Fetch all records for a specific patient by patient ID
+patientRoute.get("/:id/records", async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const records = await patientRecordSchema.find({ patient_id: id });
+
+        if (records.length === 0) {
+            return res.status(404).json({ message: "No records found for this patient" });
+        }
+
+        // Format response to include titles (e.g., date) for WATI options
+        const formattedRecords = records.map(record => ({
+            id: record._id,
+            title: record.DOV.toISOString().split("T")[0] // Format date for the title
+        }));
+
+        res.status(200).json({
+            message: "Patient records fetched successfully",
+            records: formattedRecords
+        });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to fetch patient records" });
+    }
+});
+
+const PDFDocument = require("pdfkit"); // Install using npm install pdfkit
+
+patientRoute.get("/record/:recordId/pdf", async (req, res) => {
+    const { recordId } = req.params;
+
+    try {
+        const record = await patientRecordSchema.findById(recordId);
+
+        if (!record) {
+            return res.status(404).json({ message: "Record not found" });
+        }
+
+        // Create a PDF document
+        const doc = new PDFDocument();
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader(
+            "Content-Disposition",
+            `attachment; filename=prescription-${recordId}.pdf`
+        );
+
+        // Add content to the PDF
+        doc.text("Prescription Details", { align: "center" });
+        doc.text(`Date of Visit: ${record.DOV}`);
+        doc.text(`Diagnosis: ${record.diagnosis}`);
+        doc.text(`Prescription: ${record.prescription}`);
+        doc.text(`Notes: ${record.notes}`);
+        doc.text(`Verified: ${record.signed ? "Yes" : "No"}`);
+        
+        doc.end(); // Finalize the PDF
+        doc.pipe(res); // Send PDF to client
+    } catch (error) {
+        res.status(500).json({ error: "Failed to generate PDF" });
     }
 });
 

@@ -32,9 +32,13 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
     }
 
     try {
+        // Parse the selectedDate and reset time part to 00:00:00
+        const selectedDateObj = new Date(selectedDate);
+        selectedDateObj.setHours(0, 0, 0, 0); // Set time to 00:00:00 for comparison
+
         // Find doctors with available slots for the selected date
         const doctorsSchedule = await DoctorScheduleSchema.find({
-            Date: new Date(selectedDate),
+            Date: selectedDateObj,
             SlotsAvailable: { $gt: 0 } // Find doctors with available slots
         });
 

@@ -32,19 +32,9 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
     }
 
     try {
-        // Parse the selectedDate to ensure it's in UTC with time set to 00:00:00
-        const selectedDateObj = new Date(selectedDate + "T00:00:00Z");
-
-        // Set up the range for the selected date
-        const startOfDay = new Date(selectedDateObj);
-        startOfDay.setHours(0, 0, 0, 0);
-
-        const endOfDay = new Date(selectedDateObj);
-        endOfDay.setHours(23, 59, 59, 999);
-
         // Find doctors with available slots for the selected date
         const doctorsSchedule = await DoctorScheduleSchema.find({
-            Date: { $gte: startOfDay, $lt: endOfDay },
+            Date: new Date(selectedDate),
             SlotsAvailable: { $gt: 0 } // Find doctors with available slots
         });
 
@@ -68,10 +58,8 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
         await newAppointment.save();
 
         // Decrease the available slots for the doctor
-        await DoctorScheduleSchema.updateOne(
-            { _id: doctorToBook._id },
-            { $inc: { SlotsAvailable: -1 } } // Decrease SlotsAvailable by 1
-        );
+        doctorToBook.SlotsAvailable -= 1;
+        await doctorToBook.save();
 
         // Send success response
         return res.status(201).json({

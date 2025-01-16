@@ -32,40 +32,38 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
     }
 
     try {
-        const startOfDay = new Date(selectedDate).setHours(0, 0, 0, 0);
-        const endOfDay = new Date(selectedDate).setHours(23, 59, 59, 999);
-
+        // Find doctors with available slots for the selected date
         const doctorsSchedule = await DoctorScheduleSchema.find({
-            Date: { $gte: startOfDay, $lte: endOfDay },
-            SlotsAvailable: { $gt: 0 },
+            Date: new Date(selectedDate),
+            SlotsAvailable: { $gt: 0 } // Find doctors with available slots
         });
 
         if (doctorsSchedule.length === 0) {
-            const alternativeDates = await DoctorScheduleSchema.find({
-                SlotsAvailable: { $gt: 0 },
-            }).limit(3).select("Date");
-
             return res.status(404).json({
-                message: "No appointments are available for the selected date. Here are some alternative dates:",
-                alternativeDates: alternativeDates.map(d => d.Date),
+                message: "No appointments are available for the selected date. Please try another date."
             });
         }
 
-        const doctorToBook = doctorsSchedule[0];
+        // Book appointment with the first available doctor
+        const doctorToBook = doctorsSchedule[0]; // Select the first doctor with available slots
 
+        // Create appointment record
         const newAppointment = new AppointmentRecordsSchema({
             patient_id,
             doctor_id: doctorToBook.doctor_id,
-            DateOfAppointment: selectedDate,
+            DateOfAppointment: selectedDate
         });
 
+        // Save the appointment
         await newAppointment.save();
 
+        // Decrease the available slots for the doctor
         doctorToBook.SlotsAvailable -= 1;
         await doctorToBook.save();
 
+        // Send success response
         return res.status(201).json({
-            message: `Great! Your appointment is booked with Dr. ${doctorToBook.doctor_id}`,
+            message: `Great! Your appointment is booked with Dr. ${doctorToBook.doctor_id}`
         });
 
     } catch (error) {

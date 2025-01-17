@@ -170,22 +170,19 @@ patientRoute.get("/:id/records", async (req, res) => {
             return res.status(404).json({ message: "No records found for this patient" });
         }
 
-        // Initialize the response object with the message
+        // Create response with flattened variables
         const response = {
-            message: "Patient records fetched successfully"
+            message: "Select Your Date of Visit to get Prescription"
         };
 
-        // Add each record as a separate property (e.g., record_1, record_2)
         records.forEach((record, index) => {
-            response[`record_${index + 1}`] = {
-                id: record._id,
-                title: record.DOV.toISOString().split("T")[0] // Format date for the title
-            };
+            response[`record${index + 1}_id`] = record._id;
+            response[`record${index + 1}_title`] = record.DOV.toISOString().split("T")[0];
         });
 
         res.status(200).json(response);
     } catch (error) {
-        console.error(error); // Log the error for debugging
+        console.error(error);
         res.status(500).json({ error: "Failed to fetch patient records" });
     }
 });

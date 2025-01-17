@@ -170,17 +170,22 @@ patientRoute.get("/:id/records", async (req, res) => {
             return res.status(404).json({ message: "No records found for this patient" });
         }
 
-        // Format response to include titles (e.g., date) for WATI options
-        const formattedRecords = records.map(record => ({
-            id: record._id,
-            title: record.DOV.toISOString().split("T")[0] // Format date for the title
-        }));
+        // Initialize the response object with the message
+        const response = {
+            message: "Patient records fetched successfully"
+        };
 
-        res.status(200).json({
-            message: "Patient records fetched successfully",
-            records: formattedRecords
+        // Add each record as a separate property (e.g., record_1, record_2)
+        records.forEach((record, index) => {
+            response[`record_${index + 1}`] = {
+                id: record._id,
+                title: record.DOV.toISOString().split("T")[0] // Format date for the title
+            };
         });
+
+        res.status(200).json(response);
     } catch (error) {
+        console.error(error); // Log the error for debugging
         res.status(500).json({ error: "Failed to fetch patient records" });
     }
 });
@@ -212,7 +217,7 @@ patientRoute.get("/record/:recordId/pdf", async (req, res) => {
         doc.text(`Prescription: ${record.prescription}`);
         doc.text(`Notes: ${record.notes}`);
         doc.text(`Verified: ${record.signed ? "Yes" : "No"}`);
-        
+
         doc.end(); // Finalize the PDF
         doc.pipe(res); // Send PDF to client
     } catch (error) {

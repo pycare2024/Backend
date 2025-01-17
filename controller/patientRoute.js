@@ -1,5 +1,6 @@
 const express = require("express");
 const patientSchema = require("../model/patientSchema");
+const doctorSchema = require("../model/DoctorSchema");
 const patientRecordSchema = require("../model/PatientRecordSchema"); // Import PatientRecord schema
 const ScreeningTestSchema = require("../model/ScreeningTestSchema");
 const patientRoute = express.Router();

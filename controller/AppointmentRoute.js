@@ -24,7 +24,7 @@ AppointmentRoute.get("/doctorSchedule",(req,res)=>{
 });
 
 // Route for booking appointment
-router.post("/bookAppointment", async (req, res) => {
+AppointmentRoute.post("/bookAppointment", async (req, res) => {
     const { date, patientId } = req.body;
 
     if (!date || !patientId) {

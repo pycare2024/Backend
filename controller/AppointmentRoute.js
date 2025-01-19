@@ -1,4 +1,5 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const AppointmentRoute = express.Router();
 const DoctorScheduleSchema = require("../model/DoctorScheduleSchema");
 const AppointmentRecordsSchema = require("../model/AppointmentRecordsSchema");
@@ -23,10 +24,9 @@ AppointmentRoute.get("/doctorSchedule",(req,res)=>{
     });
 });
 
-// Route for booking appointment
 AppointmentRoute.post('/bookAppointment', async (req, res) => {
     try {
-        console.log('Request Body:', req.body); // Debug the request body
+        console.log('Request Body:', req.body);
 
         const { selectedDate, patient_id } = req.body;
 
@@ -34,7 +34,6 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
             return res.status(400).json({ message: 'Date and patient ID are required.' });
         }
 
-        // Validate ObjectId
         if (!mongoose.Types.ObjectId.isValid(patient_id)) {
             return res.status(400).json({ message: 'Invalid patient ID.' });
         }
@@ -44,9 +43,11 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
             return res.status(400).json({ message: 'Invalid date format.' });
         }
 
-        // Find doctor with available slots
+        const startOfDay = new Date(date.setHours(0, 0, 0, 0));
+        const endOfDay = new Date(date.setHours(23, 59, 59, 999));
+
         const doctorSchedule = await DoctorScheduleSchema.findOne({
-            Date: date,
+            Date: { $gte: startOfDay, $lt: endOfDay },
             SlotsAvailable: { $gt: 0 },
         });
 
@@ -56,8 +57,8 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
             });
         }
 
-        // Decrement slots and book appointment
-        const updatedSlots = parseInt(doctorSchedule.SlotsAvailable) - 1;
+        const updatedSlots = parseInt(doctorSchedule.SlotsAvailable, 10) - 1;
+
         await DoctorScheduleSchema.updateOne(
             { _id: doctorSchedule._id },
             { SlotsAvailable: updatedSlots.toString() }
@@ -72,14 +73,14 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
         return res.status(200).json({
             message: 'Appointment successfully booked.',
             doctorId: doctorSchedule.doctor_id,
+            remainingSlots: updatedSlots,
         });
     } catch (error) {
-        console.error('Error:', error); // Log error details
+        console.error('Error:', error);
         return res.status(500).json({
             message: 'An error occurred while booking the appointment. Please try again later.',
         });
     }
 });
-
 
 module.exports = AppointmentRoute;

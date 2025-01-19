@@ -24,51 +24,55 @@ AppointmentRoute.get("/doctorSchedule",(req,res)=>{
 });
 
 // Route for booking appointment
-AppointmentRoute.post("/bookAppointment", async (req, res) => {
-    const { patient_id, selectedDate } = req.body;
+router.post("/bookAppointment", async (req, res) => {
+    const { date, patientId } = req.body;
 
-    if (!patient_id || !selectedDate) {
-        return res.status(400).json({ error: "Patient ID and date are required" });
+    if (!date || !patientId) {
+        return res.status(400).json({ message: "Date and patient ID are required." });
     }
 
     try {
-        // Find doctors with available slots for the selected date
-        const doctorsSchedule = await DoctorScheduleSchema.find({
-            Date: new Date(selectedDate),
-            SlotsAvailable: { $gt: 0 } // Find doctors with available slots
+        // Convert date to start and end of the day for querying
+        const appointmentDate = new Date(date);
+        const startOfDay = new Date(appointmentDate.setHours(0, 0, 0, 0));
+        const endOfDay = new Date(appointmentDate.setHours(23, 59, 59, 999));
+
+        // Find the first doctor with available slots for the given date
+        const doctorSchedule = await DoctorSchedule.findOne({
+            Date: { $gte: startOfDay, $lte: endOfDay },
+            SlotsAvailable: { $gt: 0 }
         });
 
-        if (doctorsSchedule.length === 0) {
+        if (!doctorSchedule) {
             return res.status(404).json({
-                message: "No appointments are available for the selected date. Please try another date."
+                message: "No doctors are available for the selected date. Please choose another date."
             });
         }
 
-        // Book appointment with the first available doctor
-        const doctorToBook = doctorsSchedule[0]; // Select the first doctor with available slots
+        // Reduce available slots and update the schedule
+        const updatedSlots = doctorSchedule.SlotsAvailable - 1;
+        await DoctorSchedule.updateOne(
+            { _id: doctorSchedule._id },
+            { SlotsAvailable: updatedSlots }
+        );
 
-        // Create appointment record
-        const newAppointment = new AppointmentRecordsSchema({
-            patient_id,
-            doctor_id: doctorToBook.doctor_id,
-            DateOfAppointment: selectedDate
+        // Create a new appointment record
+        const newAppointment = new AppointmentRecords({
+            patient_id: mongoose.Types.ObjectId(patientId),
+            doctor_id: doctorSchedule.doctor_id,
+            DateOfAppointment: startOfDay
         });
 
-        // Save the appointment
         await newAppointment.save();
 
-        // Decrease the available slots for the doctor
-        doctorToBook.SlotsAvailable -= 1;
-        await doctorToBook.save();
-
-        // Send success response
-        return res.status(201).json({
-            message: `Great! Your appointment is booked with Dr. ${doctorToBook.doctor_id}`
+        return res.status(200).json({
+            message: `Appointment successfully booked with Doctor ID ${doctorSchedule.doctor_id} on ${startOfDay.toDateString()}.`
         });
-
     } catch (error) {
-        console.error(error);
-        return res.status(500).json({ error: "Error booking appointment. Please try again." });
+        console.error("Error booking appointment:", error);
+        return res.status(500).json({
+            message: "An error occurred while booking the appointment. Please try again later."
+        });
     }
 });
 

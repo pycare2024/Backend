@@ -25,15 +25,15 @@ AppointmentRoute.get("/doctorSchedule",(req,res)=>{
 
 // Route for booking appointment
 AppointmentRoute.post("/bookAppointment", async (req, res) => {
-    const { date, patientId } = req.body;
+    const { selectedDate, patient_id } = req.body; // Adjusted variable names
 
-    if (!date || !patientId) {
+    if (!selectedDate || !patient_id) {
         return res.status(400).json({ message: "Date and patient ID are required." });
     }
 
     try {
-        // Convert date to start and end of the day for querying
-        const appointmentDate = new Date(date);
+        // Convert selectedDate to start and end of the day for querying
+        const appointmentDate = new Date(selectedDate);
         const startOfDay = new Date(appointmentDate.setHours(0, 0, 0, 0));
         const endOfDay = new Date(appointmentDate.setHours(23, 59, 59, 999));
 
@@ -58,7 +58,7 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
 
         // Create a new appointment record
         const newAppointment = new AppointmentRecords({
-            patient_id: mongoose.Types.ObjectId(patientId),
+            patient_id: mongoose.Types.ObjectId(patient_id),
             doctor_id: doctorSchedule.doctor_id,
             DateOfAppointment: startOfDay
         });

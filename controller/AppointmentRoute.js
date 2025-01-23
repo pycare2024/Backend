@@ -78,6 +78,7 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
         console.error("Error booking appointment:", error);
         return res.status(500).json({
             message: "An error occurred while booking the appointment. Please try again later.",
+            error: error.message,
         });
     }
 });

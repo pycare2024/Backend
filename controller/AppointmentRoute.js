@@ -22,6 +22,52 @@ AppointmentRoute.get("/doctorSchedule", (req, res) => {
     });
 });
 
+AppointmentRoute.get('/availableDates', async (req, res) => {
+    try {
+        // Use MongoDB aggregation to get unique dates and weekdays with available slots
+        const availableDates = await DoctorScheduleSchema.aggregate([
+            {
+                $match: {
+                    SlotsAvailable: { $gt: 0 }  // Filter where SlotsAvailable is greater than 0
+                }
+            },
+            {
+                $group: {
+                    _id: { 
+                        Date: { $dateToString: { format: "%Y-%m-%d", date: "$Date" } },  // Format the date to YYYY-MM-DD
+                        WeekDay: "$WeekDay"  // Group by WeekDay
+                    }
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    Date: "$_id.Date",  // Extract Date
+                    WeekDay: "$_id.WeekDay"  // Extract WeekDay
+                }
+            },
+            {
+                $sort: { Date: 1 }  // Sort by date in ascending order
+            }
+        ]);
+
+        if (!availableDates.length) {
+            return res.status(404).json({ message: "No available dates found." });
+        }
+
+        return res.status(200).json({
+            message: "Available dates and weekdays retrieved successfully.",
+            availableDates
+        });
+    } catch (error) {
+        console.error("Error retrieving available dates:", error.message);
+        return res.status(500).json({
+            message: "An error occurred while retrieving available dates. Please try again later.",
+            error: error.message,
+        });
+    }
+});
+
 AppointmentRoute.post('/bookAppointment', async (req, res) => {
     try {
         const { selectedDate, patient_id } = req.body;

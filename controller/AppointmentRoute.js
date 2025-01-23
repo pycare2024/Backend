@@ -24,79 +24,60 @@ AppointmentRoute.get("/doctorSchedule", (req, res) => {
 
 AppointmentRoute.post('/bookAppointment', async (req, res) => {
     try {
-        console.log('Request Body:', req.body);
-
         const { selectedDate, patient_id } = req.body;
 
         // Validate input
         if (!selectedDate || !patient_id) {
-            return res.status(400).json({ message: 'Date and patient ID are required.' });
+            return res.status(400).json({ message: "Date and Patient ID are required." });
         }
 
-        // Validate patient_id as a valid ObjectId
         if (!mongoose.Types.ObjectId.isValid(patient_id)) {
-            return res.status(400).json({ message: 'Invalid patient ID.' });
+            return res.status(400).json({ message: "Invalid Patient ID." });
         }
 
-        // Parse and validate the selectedDate
+        // Parse the selected date
         const date = new Date(selectedDate);
         if (isNaN(date)) {
-            return res.status(400).json({ message: 'Invalid date format. Use YYYY-MM-DD.' });
+            return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD." });
         }
 
-        // Convert the selectedDate into a UTC day range
-        const startOfDay = new Date(selectedDate);
-        startOfDay.setUTCHours(0, 0, 0, 0);
+        // Ensure date is at UTC midnight
+        const appointmentDate = new Date(date.setUTCHours(0, 0, 0, 0));
 
-        const endOfDay = new Date(selectedDate);
-        endOfDay.setUTCHours(23, 59, 59, 999);
+        // Find and update doctor schedule atomically
+        const doctorSchedule = await DoctorScheduleSchema.findOneAndUpdate(
+            { Date: appointmentDate, SlotsAvailable: { $gt: 0 } }, // Match exact date and slots available
+            { $inc: { SlotsAvailable: -1 } }, // Decrement slots atomically
+            { new: true } // Return the updated document
+        );
 
-        console.log('Query Start of Day (UTC):', startOfDay.toISOString());
-        console.log('Query End of Day (UTC):', endOfDay.toISOString());
-
-        // Find a doctor schedule for the given date with available slots
-        const doctorSchedule = await DoctorScheduleSchema.findOne({
-            Date: { $gte: startOfDay, $lt: endOfDay },
-            SlotsAvailable: { $gt: 0 },
-        });
-
+        // If no doctor schedule is found
         if (!doctorSchedule) {
             return res.status(404).json({
-                message: 'No doctors available on the selected date. Please choose another date.',
-                startOfDay,
-                endOfDay,
-                doctorSchedule,
+                message: "No doctors available on the selected date. Please choose another date.",
+                selectedDate: appointmentDate,
             });
         }
 
-        console.log('Doctor Schedule Found:', doctorSchedule);
-
-        // Decrement the available slots
-        const updatedSlots = parseInt(doctorSchedule.SlotsAvailable, 10) - 1;
-
-        // Update the doctor's schedule in the database
-        await DoctorScheduleSchema.updateOne(
-            { _id: doctorSchedule._id },
-            { SlotsAvailable: updatedSlots.toString() }
-        );
-
         // Create a new appointment record
-        await AppointmentRecordsSchema.create({
+        const appointment = await AppointmentRecordsSchema.create({
             patient_id,
             doctor_id: doctorSchedule.doctor_id,
-            DateOfAppointment: startOfDay,
+            DateOfAppointment: appointmentDate,
+            WeekDay: doctorSchedule.WeekDay,
         });
 
-        // Respond with success
+        // Return success response
         return res.status(200).json({
-            message: 'Appointment successfully booked.',
+            message: "Appointment successfully booked.",
             doctorId: doctorSchedule.doctor_id,
-            remainingSlots: updatedSlots,
+            remainingSlots: doctorSchedule.SlotsAvailable,
+            appointmentDetails: appointment,
         });
     } catch (error) {
-        console.error('Error:', error);
+        console.error("Error booking appointment:", error);
         return res.status(500).json({
-            message: 'An error occurred while booking the appointment. Please try again later.',
+            message: "An error occurred while booking the appointment. Please try again later.",
         });
     }
 });

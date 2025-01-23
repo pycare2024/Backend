@@ -5,7 +5,8 @@ const {ObjectId} = mongoose.Schema.Types;
 const AppointmentRecordsSchema=new mongoose.Schema({
     "patient_id":{type:ObjectId},
     "doctor_id":{type:ObjectId},
-    "DateOfAppointment":{type:Date}
+    "DateOfAppointment":{type:Date},
+    "WeekDay":{type:String}
 },{
     collection:"AppointmentRecords"
 })

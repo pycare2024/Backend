@@ -24,46 +24,47 @@ AppointmentRoute.get("/doctorSchedule", (req, res) => {
 
 AppointmentRoute.get('/availableDates', async (req, res) => {
     try {
-        // Use MongoDB aggregation to get unique dates and weekdays with available slots
+        // Fetch all unique available dates and weekdays where slots are available
         const availableDates = await DoctorScheduleSchema.aggregate([
             {
                 $match: {
-                    SlotsAvailable: { $gt: 0 }  // Filter where SlotsAvailable is greater than 0
-                }
-            },
-            {
-                $group: {
-                    _id: { 
-                        Date: { $dateToString: { format: "%Y-%m-%d", date: "$Date" } },  // Format the date to YYYY-MM-DD
-                        WeekDay: "$WeekDay"  // Group by WeekDay
-                    }
-                }
+                    SlotsAvailable: { $gt: 0 },
+                },
             },
             {
                 $project: {
-                    _id: 0,
-                    Date: "$_id.Date",  // Extract Date
-                    WeekDay: "$_id.WeekDay"  // Extract WeekDay
-                }
+                    Date: 1,
+                    WeekDay: 1,
+                },
             },
             {
-                $sort: { Date: 1 }  // Sort by date in ascending order
-            }
+                $group: {
+                    _id: "$Date",
+                    WeekDay: { $first: "$WeekDay" },
+                },
+            },
+            {
+                $sort: { "_id": 1 }, // Optional: Sort by date if needed
+            },
         ]);
 
-        if (!availableDates.length) {
-            return res.status(404).json({ message: "No available dates found." });
-        }
+        // Prepare the response with dynamic keys
+        let response = {
+            message: 'Available dates and weekdays retrieved successfully.',
+        };
 
-        return res.status(200).json({
-            message: "Available dates and weekdays retrieved successfully.",
-            availableDates
+        availableDates.forEach((entry, index) => {
+            const formattedDate = new Date(entry._id).toISOString().split('T')[0]; // Convert to YYYY-MM-DD format
+            response[`Date${index + 1}`] = formattedDate;
+            response[`WeekDay${index + 1}`] = entry.WeekDay;
         });
+
+        return res.status(200).json(response);
+
     } catch (error) {
-        console.error("Error retrieving available dates:", error.message);
+        console.error('Error:', error);
         return res.status(500).json({
-            message: "An error occurred while retrieving available dates. Please try again later.",
-            error: error.message,
+            message: 'An error occurred while fetching the available dates.',
         });
     }
 });

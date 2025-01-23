@@ -45,11 +45,14 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
         }
 
         // Convert the selectedDate into a UTC day range
-        const startOfDay = new Date(date.setUTCHours(0, 0, 0, 0));
-        const endOfDay = new Date(date.setUTCHours(23, 59, 59, 999));
+        const startOfDay = new Date(selectedDate);
+        startOfDay.setUTCHours(0, 0, 0, 0);
 
-        console.log('Start of Day (UTC):', startOfDay);
-        console.log('End of Day (UTC):', endOfDay);
+        const endOfDay = new Date(selectedDate);
+        endOfDay.setUTCHours(23, 59, 59, 999);
+
+        console.log('Query Start of Day (UTC):', startOfDay.toISOString());
+        console.log('Query End of Day (UTC):', endOfDay.toISOString());
 
         // Find a doctor schedule for the given date with available slots
         const doctorSchedule = await DoctorScheduleSchema.findOne({
@@ -62,7 +65,6 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
                 message: 'No doctors available on the selected date. Please choose another date.',
                 startOfDay,
                 endOfDay,
-                date,
                 doctorSchedule,
             });
         }

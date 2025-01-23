@@ -4,23 +4,21 @@ const AppointmentRoute = express.Router();
 const DoctorScheduleSchema = require("../model/DoctorScheduleSchema");
 const AppointmentRecordsSchema = require("../model/AppointmentRecordsSchema");
 
-AppointmentRoute.get("/appointments",(req,res)=>{
-    AppointmentRecordsSchema.find((err,data)=>{
-        if(err)
-            {
-                return res.status(500).json({error:"Failed to fetch Appointment Records"});
-            }
-            res.json(data);
+AppointmentRoute.get("/appointments", (req, res) => {
+    AppointmentRecordsSchema.find((err, data) => {
+        if (err) {
+            return res.status(500).json({ error: "Failed to fetch Appointment Records" });
+        }
+        res.json(data);
     });
 });
 
-AppointmentRoute.get("/doctorSchedule",(req,res)=>{
-    DoctorScheduleSchema.find((err,data)=>{
-        if(err)
-            {
-                return res.status(500).json({error:"Failed to fetch Doctors schedule"});
-            }
-            res.json(data);
+AppointmentRoute.get("/doctorSchedule", (req, res) => {
+    DoctorScheduleSchema.find((err, data) => {
+        if (err) {
+            return res.status(500).json({ error: "Failed to fetch Doctors schedule" });
+        }
+        res.json(data);
     });
 });
 
@@ -30,22 +28,30 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
 
         const { selectedDate, patient_id } = req.body;
 
+        // Validate input
         if (!selectedDate || !patient_id) {
             return res.status(400).json({ message: 'Date and patient ID are required.' });
         }
 
+        // Validate patient_id as a valid ObjectId
         if (!mongoose.Types.ObjectId.isValid(patient_id)) {
             return res.status(400).json({ message: 'Invalid patient ID.' });
         }
 
+        // Parse and validate the selectedDate
         const date = new Date(selectedDate);
         if (isNaN(date)) {
-            return res.status(400).json({ message: 'Invalid date format.' });
+            return res.status(400).json({ message: 'Invalid date format. Use YYYY-MM-DD.' });
         }
 
-        const startOfDay = new Date(date.setHours(0, 0, 0, 0));
-        const endOfDay = new Date(date.setHours(23, 59, 59, 999));
+        // Convert the selectedDate into a UTC day range
+        const startOfDay = new Date(date.setUTCHours(0, 0, 0, 0));
+        const endOfDay = new Date(date.setUTCHours(23, 59, 59, 999));
 
+        console.log('Start of Day (UTC):', startOfDay);
+        console.log('End of Day (UTC):', endOfDay);
+
+        // Find a doctor schedule for the given date with available slots
         const doctorSchedule = await DoctorScheduleSchema.findOne({
             Date: { $gte: startOfDay, $lt: endOfDay },
             SlotsAvailable: { $gt: 0 },
@@ -57,19 +63,25 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
             });
         }
 
+        console.log('Doctor Schedule Found:', doctorSchedule);
+
+        // Decrement the available slots
         const updatedSlots = parseInt(doctorSchedule.SlotsAvailable, 10) - 1;
 
+        // Update the doctor's schedule in the database
         await DoctorScheduleSchema.updateOne(
             { _id: doctorSchedule._id },
             { SlotsAvailable: updatedSlots.toString() }
         );
 
+        // Create a new appointment record
         await AppointmentRecordsSchema.create({
             patient_id,
             doctor_id: doctorSchedule.doctor_id,
-            DateOfAppointment: date,
+            DateOfAppointment: startOfDay,
         });
 
+        // Respond with success
         return res.status(200).json({
             message: 'Appointment successfully booked.',
             doctorId: doctorSchedule.doctor_id,
@@ -82,5 +94,6 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
         });
     }
 });
+
 
 module.exports = AppointmentRoute;

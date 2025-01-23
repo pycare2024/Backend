@@ -60,6 +60,8 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
         if (!doctorSchedule) {
             return res.status(404).json({
                 message: 'No doctors available on the selected date. Please choose another date.',
+                startOfDay,
+                endOfDay,
             });
         }
 

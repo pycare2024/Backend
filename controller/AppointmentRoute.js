@@ -24,11 +24,11 @@ AppointmentRoute.get("/doctorSchedule", (req, res) => {
 
 AppointmentRoute.get('/availableDates', async (req, res) => {
     try {
-        // Fetch all unique available dates and weekdays where slots are available
+        // Fetch all unique dates and weekdays where a doctor is scheduled (regardless of SlotsAvailable)
         const availableDates = await DoctorScheduleSchema.aggregate([
             {
                 $match: {
-                    SlotsAvailable: { $gt: 0 },
+                    Date: { $exists: true }, // Ensure the Date field exists
                 },
             },
             {
@@ -39,12 +39,12 @@ AppointmentRoute.get('/availableDates', async (req, res) => {
             },
             {
                 $group: {
-                    _id: "$Date",
-                    WeekDay: { $first: "$WeekDay" },
+                    _id: "$Date", // Group by unique dates
+                    WeekDay: { $first: "$WeekDay" }, // Keep the corresponding WeekDay
                 },
             },
             {
-                $sort: { "_id": 1 }, // Optional: Sort by date if needed
+                $sort: { "_id": 1 }, // Sort dates in ascending order
             },
         ]);
 

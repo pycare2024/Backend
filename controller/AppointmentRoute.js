@@ -91,6 +91,19 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
         // Ensure date is at UTC midnight
         const appointmentDate = new Date(date.setUTCHours(0, 0, 0, 0));
 
+        // Check if an appointment already exists for the patient on the selected date
+        const existingAppointment = await AppointmentRecordsSchema.findOne({
+            patient_id,
+            DateOfAppointment: appointmentDate,
+        });
+
+        if (existingAppointment) {
+            return res.status(409).json({
+                message: "You already have an appointment booked for this date.",
+                appointmentDetails: existingAppointment,
+            });
+        }
+
         // Find and update doctor schedule atomically
         const doctorSchedule = await DoctorScheduleSchema.findOneAndUpdate(
             { Date: appointmentDate, SlotsAvailable: { $gt: 0 } }, // Match exact date and slots available
@@ -129,6 +142,5 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
         });
     }
 });
-
 
 module.exports = AppointmentRoute;

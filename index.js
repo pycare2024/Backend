@@ -7,6 +7,7 @@ const DoctorRoute=require("./controller/DoctorRoute");
 const QueryRoute=require("./controller/QueryRoute");
 const ScreeningTestRoute=require("./controller/ScreeningTestRoute");
 const AppointmentRoute=require("./controller/AppointmentRoute");
+const DoctorScheduleRoute=require("./controller/DoctorScheduleRoute");
 const bodyParser=require("body-parser");
 const cors=require("cors");
 
@@ -28,6 +29,7 @@ app.use("/AdminRoute",AdminRoute);
 app.use("/QueryRoute",QueryRoute);
 app.use("/ScreeningTestRoute",ScreeningTestRoute);
 app.use("/AppointmentRoute",AppointmentRoute);
+app.use("/DoctorScheduleRoute",DoctorScheduleRoute);
 
 app.listen(4000,()=>{
     console.log("Server started at 4000");

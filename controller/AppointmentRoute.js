@@ -105,36 +105,74 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
             });
         }
 
-        // Find and update doctor schedule atomically
-        const doctorSchedule = await DoctorScheduleSchema.findOneAndUpdate(
-            { Date: appointmentDate, SlotsAvailable: { $gt: 0 } }, // Match exact date and slots available
-            { $inc: { SlotsAvailable: -1 } }, // Decrement slots atomically
-            { new: true } // Return the updated document
-        );
+        // Fetch the last assigned doctor for this date
+        let lastAssignment = await DoctorsAssignmentPrioritySchema.findOne({ Date: appointmentDate });
 
-        // If no doctor schedule is found
-        if (!doctorSchedule) {
+        // Get all available doctors sorted by doctor_id
+        const availableDoctors = await DoctorScheduleSchema.find({ 
+            Date: appointmentDate, 
+            SlotsAvailable: { $gt: 0 } 
+        }).sort({ doctor_id: 1 });
+
+        if (availableDoctors.length === 0) {
             return res.status(404).json({
                 message: "No doctors available on the selected date. Please choose another date.",
                 selectedDate: appointmentDate,
             });
         }
 
+        let selectedDoctor;
+
+        if (!lastAssignment) {
+            // First appointment for this date, assign the first available doctor
+            selectedDoctor = availableDoctors[0];
+
+            // Create a new entry in DoctorsAssignmentPriority
+            await DoctorsAssignmentPrioritySchema.create({
+                Date: appointmentDate,
+                LastDoctorAssigned: selectedDoctor.doctor_id
+            });
+
+        } else {
+            // Find the next doctor in round-robin order
+            const lastAssignedDoctorIndex = availableDoctors.findIndex(doc => doc.doctor_id.toString() === lastAssignment.LastDoctorAssigned.toString());
+
+            if (lastAssignedDoctorIndex === -1 || lastAssignedDoctorIndex === availableDoctors.length - 1) {
+                // If last assigned doctor is not in the list or it's the last doctor, select the first doctor
+                selectedDoctor = availableDoctors[0];
+            } else {
+                // Select the next doctor in the list
+                selectedDoctor = availableDoctors[lastAssignedDoctorIndex + 1];
+            }
+
+            // Update the DoctorsAssignmentPriority table
+            await DoctorsAssignmentPrioritySchema.updateOne(
+                { Date: appointmentDate },
+                { $set: { LastDoctorAssigned: selectedDoctor.doctor_id } }
+            );
+        }
+
+        // Book the appointment and update doctor's schedule
+        await DoctorScheduleSchema.updateOne(
+            { _id: selectedDoctor._id },
+            { $inc: { SlotsAvailable: -1 } }
+        );
+
         // Create a new appointment record
         const appointment = await AppointmentRecordsSchema.create({
             patient_id,
-            doctor_id: doctorSchedule.doctor_id,
+            doctor_id: selectedDoctor.doctor_id,
             DateOfAppointment: appointmentDate,
-            WeekDay: doctorSchedule.WeekDay,
+            WeekDay: selectedDoctor.WeekDay,
         });
 
-        // Return success response
         return res.status(200).json({
             message: "Appointment successfully booked.",
-            doctorId: doctorSchedule.doctor_id,
-            remainingSlots: doctorSchedule.SlotsAvailable,
+            doctorId: selectedDoctor.doctor_id,
+            remainingSlots: selectedDoctor.SlotsAvailable - 1, // Since we just decremented
             appointmentDetails: appointment,
         });
+
     } catch (error) {
         console.error("Error booking appointment:", error);
         return res.status(500).json({

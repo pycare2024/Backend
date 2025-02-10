@@ -4,6 +4,7 @@ const AppointmentRoute = express.Router();
 const DoctorScheduleSchema = require("../model/DoctorScheduleSchema");
 const AppointmentRecordsSchema = require("../model/AppointmentRecordsSchema");
 const DoctorSchema = require("../model/DoctorSchema");
+const DoctorsAssignmentPrioritySchema = require("../model/DoctorsAssignmentPrioritySchema"); // ✅ Import this!
 
 AppointmentRoute.get("/appointments", (req, res) => {
     AppointmentRecordsSchema.find((err, data) => {

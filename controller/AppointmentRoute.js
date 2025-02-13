@@ -15,6 +15,28 @@ AppointmentRoute.get("/appointments", (req, res) => {
     });
 });
 
+// Route to get an appointment by appointment_id
+AppointmentRoute.get("/appointment/:appointment_id", async (req, res) => {
+    try {
+        const { appointment_id } = req.params;
+
+        if (!mongoose.Types.ObjectId.isValid(appointment_id)) {
+            return res.status(400).json({ message: "Invalid Appointment ID." });
+        }
+
+        const appointment = await AppointmentRecordsSchema.findById(appointment_id);
+
+        if (!appointment) {
+            return res.status(404).json({ message: "Appointment not found." });
+        }
+
+        return res.status(200).json({ appointment });
+    } catch (error) {
+        console.error("Error fetching appointment by ID:", error);
+        return res.status(500).json({ message: "An error occurred while fetching the appointment." });
+    }
+});
+
 // Route to get all appointments for a patient with optional date filtering
 AppointmentRoute.get("/appointments/:patient_id", async (req, res) => {
     try {

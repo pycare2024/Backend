@@ -10,6 +10,7 @@ const AppointmentRoute=require("./controller/AppointmentRoute");
 const DoctorScheduleRoute=require("./controller/DoctorScheduleRoute");
 const bodyParser=require("body-parser");
 const cors=require("cors");
+const OtpRoute = require("./controller/OtpRoute");
 
 const app=express();
 app.use(express.json());
@@ -30,6 +31,7 @@ app.use("/QueryRoute",QueryRoute);
 app.use("/ScreeningTestRoute",ScreeningTestRoute);
 app.use("/AppointmentRoute",AppointmentRoute);
 app.use("/DoctorScheduleRoute",DoctorScheduleRoute);
+app.use("/OtpRoute",OtpRoute);
 
 app.listen(4000,()=>{
     console.log("Server started at 4000");

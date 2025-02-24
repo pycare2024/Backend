@@ -31,7 +31,7 @@ OtpRoute.get("/send-otp/:phoneNumber", async (req, res) => {
                 broadcast_name: "OTP_Broadcast",
                 parameters: [
                     {
-                        name: "otp",
+                        name: "1",
                         value: otp  // Sending the generated OTP
                     }
                 ]

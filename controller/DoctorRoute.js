@@ -137,4 +137,21 @@ DoctorRoute.post("/register", async (req, res) => {
     }
 });
 
+// Delete a doctor by ID
+DoctorRoute.delete("/delete/:id", async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const deletedDoctor = await DoctorSchema.findOneAndDelete({ id });
+
+        if (!deletedDoctor) {
+            return res.status(404).json({ success: false, message: "Doctor not found" });
+        }
+
+        res.json({ success: true, message: "Doctor deleted successfully" });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Server error, please try again" });
+    }
+});
+
 module.exports = DoctorRoute;

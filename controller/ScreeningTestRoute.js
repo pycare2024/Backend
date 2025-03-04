@@ -85,4 +85,75 @@ ScreeningTestRoute.post("/addScreenTestData", (req, res) => {
     });
 });
 
+ScreeningTestRoute.post("/submitScreeningTest", async (req, res) => {
+    const { patient_id, answers } = req.body;
+
+    if (!patient_id || !answers) {
+        return res.status(400).json({ message: "Patient ID and answers are required." });
+    }
+
+    try {
+        let scoreDepression = 0, scoreAnxiety = 0, scoreOCD = 0, scorePTSD = 0, scoreSleep = 0;
+
+        // Loop through all 31 questions and calculate scores
+        for (let i = 1; i <= 31; i++) {
+            let response = answers[`stq${i}`];
+
+            if (!response) response = "0"; // Default to 0 if missing
+
+            // Section 1: Depression Screening (Q1-Q9)
+            if (i >= 1 && i <= 9) {
+                if (i <= 2) {
+                    scoreDepression += parseInt(response) - 1; // Mapping (1,2,3,4) → (0,1,2,3)
+                } else {
+                    scoreDepression += response.toLowerCase() === "yes" ? 3 : 0; // Yes = 3, No = 0
+                }
+            }
+
+            // Section 2: Anxiety Screening (Q10-Q16) (Yes = 3, No = 0)
+            if (i >= 10 && i <= 16) {
+                scoreAnxiety += response.toLowerCase() === "yes" ? 3 : 0;
+            }
+
+            // Section 3: OCD Screening (Q17-Q21)
+            if (i >= 17 && i <= 21) {
+                if (i <= 20) {
+                    scoreOCD += response.toLowerCase() === "yes" ? 6 : 0; // Yes = 6, No = 0
+                }
+            }
+
+            // Section 4: PTSD Screening (Q22-Q26) (Mapping 1,2,3,4,5 → 0,1,2,3,4)
+            if (i >= 22 && i <= 26) {
+                scorePTSD += parseInt(response) - 1;
+            }
+
+            // Section 5: Sleep Issues (Q27-Q31) (Mapping 1,2,3,4,5 → 0,1,2,3,4)
+            if (i >= 27 && i <= 31) {
+                scoreSleep += parseInt(response) - 1;
+            }
+        }
+
+        // Store categorized data
+        const newTestRecord = new ScreeningTestSchema({
+            patient_id,
+            DateOfTest: new Date(),
+            answers,  // Store raw responses
+            scores: {
+                depression: scoreDepression,
+                anxiety: scoreAnxiety,
+                ocd: scoreOCD,
+                ptsd: scorePTSD,
+                sleep: scoreSleep
+            }
+        });
+
+        // Save to database
+        const savedRecord = await newTestRecord.save();
+        res.status(201).json(savedRecord);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Failed to save screening test record" });
+    }
+});
+
 module.exports = ScreeningTestRoute;

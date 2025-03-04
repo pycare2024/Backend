@@ -99,4 +99,42 @@ DoctorRoute.post("/resetPassword", async (req, res) => {
     }
 });
 
+DoctorRoute.post("/register", async (req, res) => {
+    const { id, Name, Age, Pincode, City, Qualification, loginId, password, Gender, Mobile, dob } = req.body;
+
+    // Check if all required fields are provided
+    if (!id || !Name || !Age || !Pincode || !City || !Qualification || !loginId || !password || !Gender || !Mobile || !dob) {
+        return res.status(400).json({ success: false, message: "All fields are required" });
+    }
+
+    try {
+        // Check if doctor already exists
+        const existingDoctor = await DoctorSchema.findOne({ loginId });
+        if (existingDoctor) {
+            return res.status(400).json({ success: false, message: "Doctor with this login ID already exists" });
+        }
+
+        // Create new doctor entry
+        const newDoctor = new DoctorSchema({
+            id,
+            Name,
+            Age,
+            Pincode,
+            City,
+            Qualification,
+            loginId,
+            password, // Save hashed password
+            Gender,
+            Mobile,
+            dob
+        });
+
+        await newDoctor.save();
+        res.status(201).json({ success: true, message: "Doctor registered successfully" });
+
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Server error, please try again" });
+    }
+});
+
 module.exports = DoctorRoute;

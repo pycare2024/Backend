@@ -12,6 +12,7 @@ const bodyParser=require("body-parser");
 const cors=require("cors");
 const OtpRoute = require("./controller/OtpRoute");
 const CredentialsRoute = require("./controller/CredentialsRoute");
+const path = require("path");
 
 const app=express();
 app.use(express.json());
@@ -34,6 +35,7 @@ app.use("/AppointmentRoute",AppointmentRoute);
 app.use("/DoctorScheduleRoute",DoctorScheduleRoute);
 app.use("/OtpRoute",OtpRoute);
 app.use("/CredentialsRoute",CredentialsRoute);
+app.use("/Uploads",express.static(path.join(__dirname,"Uploads")));
 
 app.listen(4000,()=>{
     console.log("Server started at 4000");

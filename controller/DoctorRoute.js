@@ -1,19 +1,6 @@
 const express = require("express");
-const multer = require("multer");
-const path = require("path");
 const DoctorSchema = require("../model/DoctorSchema");
 const DoctorRoute = express.Router();
-
-// Set up storage for uploaded files
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, "Uploads/"); // Store files in 'uploads' folder
-    },
-    filename: (req, file, cb) => {
-        cb(null, `${Date.now()}-${file.originalname}`); // Unique filename
-    }
-});
-const upload = multer({ storage: storage });
 
 // Fetch all doctors
 DoctorRoute.get("/", (req, res) => {
@@ -111,22 +98,22 @@ DoctorRoute.post("/resetPassword", async (req, res) => {
     }
 });
 
-// Doctor registration route with file upload
-DoctorRoute.post("/register", upload.array("certificates", 5), async (req, res) => {
+DoctorRoute.post("/register", async (req, res) => {
     const { id, Name, Age, Pincode, City, Qualification, loginId, password, Gender, Mobile, dob } = req.body;
 
+    // Check if all required fields are provided
     if (!id || !Name || !Age || !Pincode || !City || !Qualification || !loginId || !password || !Gender || !Mobile || !dob) {
         return res.status(400).json({ success: false, message: "All fields are required" });
     }
 
     try {
+        // Check if doctor already exists
         const existingDoctor = await DoctorSchema.findOne({ loginId });
         if (existingDoctor) {
             return res.status(400).json({ success: false, message: "Doctor with this login ID already exists" });
         }
 
-        const certificateFiles = req.files.map(file => file.path); // Get file paths
-
+        // Create new doctor entry
         const newDoctor = new DoctorSchema({
             id,
             Name,
@@ -135,11 +122,10 @@ DoctorRoute.post("/register", upload.array("certificates", 5), async (req, res) 
             City,
             Qualification,
             loginId,
-            password,
+            password, // Save hashed password
             Gender,
             Mobile,
-            dob,
-            certificates: certificateFiles // Store file paths
+            dob
         });
 
         await newDoctor.save();
@@ -149,9 +135,6 @@ DoctorRoute.post("/register", upload.array("certificates", 5), async (req, res) 
         res.status(500).json({ success: false, message: "Server error, please try again" });
     }
 });
-
-// Serve uploaded files
-DoctorRoute.use("/uploads", express.static("uploads"));
 
 // Delete a doctor by ID
 DoctorRoute.delete("/delete/:id", async (req, res) => {

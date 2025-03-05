@@ -1,20 +1,21 @@
-const mongoose = require("mongoose");
 
-const DoctorSchema = new mongoose.Schema({
-    id: { type: String, required: true, unique: true },
-    Name: { type: String, required: true },
-    Age: { type: Number, required: true },
-    Pincode: { type: Number, required: true },
-    City: { type: String, required: true },
-    Qualification: { type: String, required: true },
-    loginId: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
-    Gender: { type: String, required: true },
-    Mobile: { type: Number, required: true },
-    dob: { type: Date, required: true },
-    certificates: [{ type: String }] // Array to store file paths or base64 strings
-}, {
-    collection: "Doctors"
-});
+const mongoose=require("mongoose");
+const { collection } = require("./AdminSchema");
 
-module.exports = mongoose.model("DoctorSchema", DoctorSchema);
+const DoctorSchema=mongoose.Schema({
+    "id":{type:String},
+    "Name":{type:String},
+    "Age":{type:Number},
+    "Pincode":{type:Number},
+    "City":{type:String},
+    "Qualification":{type:String},
+    "loginId":{type:String},
+    "password":{type:String},
+    "Gender":{type:String},
+    "Mobile":{type:Number},
+    "dob":{type:Date}
+},{
+    collection:"Doctors"
+})
+
+module.exports=mongoose.model("DoctorSchema",DoctorSchema);

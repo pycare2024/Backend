@@ -12,9 +12,16 @@ const bodyParser=require("body-parser");
 const cors=require("cors");
 const OtpRoute = require("./controller/OtpRoute");
 const CredentialsRoute = require("./controller/CredentialsRoute");
+const NewScreeningTestRoute = require("./controller/NewScreeningTestRoute");
+const dotenv = require("dotenv");
+
+
+dotenv.config();
 
 const app=express();
 app.use(express.json());
+
+const GeminiRoute = require("./controller/GeminiRoute");
 
 mongoose.set("strictQuery",true); //To Supress the depriciation waring(-- for my help !)
 mongoose.connect("mongodb+srv://vae0620:Amen123@cluster0.yagt9.mongodb.net/CompanyDb");
@@ -34,6 +41,8 @@ app.use("/AppointmentRoute",AppointmentRoute);
 app.use("/DoctorScheduleRoute",DoctorScheduleRoute);
 app.use("/OtpRoute",OtpRoute);
 app.use("/CredentialsRoute",CredentialsRoute);
+app.use("/NewScreeningTestRoute",NewScreeningTestRoute);
+app.use("/GeminiRoute",GeminiRoute);
 
 app.listen(4000,()=>{
     console.log("Server started at 4000");

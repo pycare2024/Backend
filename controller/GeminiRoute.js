@@ -73,8 +73,10 @@ GeminiRoute.post("/generateReport", async (req, res) => {
     - *Findings:* (Highlight key concerns based on severity)
     - *Recommendations:* (Personalized next steps, treatment suggestions, and self-care tips)
     
-    Keep the report short, professional, and easy to understand with important points bolded,also suggest the
-    patient at last that whether he/she should consult a psychatrist or not,also don't include * in ypur response.
+    Keep the report short, professional,include emojis and easy to understand with important points bolded,also suggest the
+    patient at last that whether he/she should consult a psychatrist or not.
+
+    please remember to not include unessacary asterisks in your response. 
     `;
 
     try {

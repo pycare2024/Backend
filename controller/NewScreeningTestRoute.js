@@ -2,6 +2,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 const NewScreeningTestSchema = require("../model/NewScreeningTestSchema"); // Ensure correct path
 const NewScreeningTestRoute = express.Router();
+const fetch = require("node-fetch");
 
 NewScreeningTestRoute.get("/", (req, res) => {
     NewScreeningTestSchema.find((err, data) => {
@@ -15,18 +16,14 @@ NewScreeningTestRoute.get("/", (req, res) => {
 NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
     try {
         console.log("🔹 Received request body:", req.body);
-
         const { patient_id, answers } = req.body;
 
-        // Validate patient_id
         if (!mongoose.Types.ObjectId.isValid(patient_id)) {
             return res.status(400).json({ message: "Invalid patient_id" });
         }
 
         // Convert answers to numbers
-        const responses = answers.map(Number); // 🔹 Ensures numerical values
-
-        // Validate responses
+        const responses = answers.map(Number);
         if (responses.length !== 31 || responses.some(isNaN)) {
             return res.status(400).json({
                 message: "Invalid responses format. Must be 31 numerical values.",
@@ -45,7 +42,7 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
             sleep: { start: 26, end: 30 },
         };
 
-        // Score Calculation
+        // Calculate scores
         const calculateScore = (start, end) =>
             responses.slice(start, end + 1).reduce((sum, val) => sum + val, 0);
 
@@ -59,7 +56,7 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
 
         console.log("📝 Calculated scores:", scores);
 
-        // Save results in database
+        // Save results in the database
         const assessment = new NewScreeningTestSchema({
             patient_id,
             depression: scores.depression,
@@ -70,7 +67,27 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
         });
 
         await assessment.save();
-        res.status(201).json({ message: "Assessment submitted successfully", scores });
+
+        // 🔹 **Call /generateReport Route**
+        const reportResponse = await fetch(
+            "https://backend-xhl4.onrender.com/GeminiRoute/generateReport",
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(scores),
+            }
+        );
+
+        const reportData = await reportResponse.json();
+        const report = reportData?.report || "Error generating report.";
+
+        // Send response with scores and generated report
+        res.status(201).json({
+            message: "Assessment submitted successfully",
+            scores,
+            report, // 🔹 Report included in response
+        });
+
     } catch (error) {
         console.error("❌ Server Error:", error);
         res.status(500).json({ message: "Server error", error });

@@ -7,7 +7,9 @@ const NewScreeningTestSchema=new mongoose.Schema({
     "anxiety":{type:Number},
     "ocd":{type:Number},
     "ptsd":{type:Number},
-    "sleep":{type:Number}
+    "sleep":{type:Number},
+    "DateOfTest":{type:Date},
+    "report":{type:String}
 },{
     collection:"NewScreeningTestRecords"
 })

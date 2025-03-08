@@ -56,18 +56,6 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
 
         console.log("📝 Calculated scores:", scores);
 
-        // Save results in the database
-        const assessment = new NewScreeningTestSchema({
-            patient_id,
-            depression: scores.depression,
-            anxiety: scores.anxiety,
-            ocd: scores.ocd,
-            ptsd: scores.ptsd,
-            sleep: scores.sleep,
-        });
-
-        await assessment.save();
-
         // 🔹 **Call /generateReport Route**
         const reportResponse = await fetch(
             "https://backend-xhl4.onrender.com/GeminiRoute/generateReport",
@@ -80,6 +68,22 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
 
         const reportData = await reportResponse.json();
         const report = reportData?.report || "Error generating report.";
+
+        console.log("📄 Generated Report:", report);
+
+        // 🔹 **Save results in the database with DateOfTest and Report**
+        const assessment = new NewScreeningTestSchema({
+            patient_id,
+            depression: scores.depression,
+            anxiety: scores.anxiety,
+            ocd: scores.ocd,
+            ptsd: scores.ptsd,
+            sleep: scores.sleep,
+            DateOfTest: new Date(), // Auto-generated date
+            report: report, // Store the AI-generated report
+        });
+
+        await assessment.save();
 
         // Send response with scores and generated report
         res.status(201).json({

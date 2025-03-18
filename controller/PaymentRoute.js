@@ -7,12 +7,12 @@ const PaymentRoute = express.Router();
 // 📌 Route to Create a Payment Order
 PaymentRoute.post("/create-order", async (req, res) => {
     try {
-        const { amount, currency, receipt } = req.body;
+        const { amount } = req.body;
 
         const options = {
             amount: amount * 100, // Convert to paise
-            currency: currency || "INR",
-            receipt: receipt || `receipt_${Date.now()}`,
+            currency: "INR",
+            receipt: `receipt_${Date.now()}`,
             payment_capture: 1, // Auto-capture payment
         };
 
@@ -33,51 +33,43 @@ PaymentRoute.post("/verify-payment", async (req, res) => {
         const generated_signature = hmac.digest("hex");
 
         if (generated_signature === razorpay_signature) {
-            // ✅ Payment verified, update in database (pseudo-code)
-            // await updateDatabasePaymentStatus(razorpay_order_id, "Success");
+            console.log("✅ Payment Verified:", razorpay_payment_id);
 
-            res.json({ success: true, message: "Payment verified successfully!" });
+            // TODO: Update database with payment success status
+            return res.json({ success: true, message: "Payment verified successfully!" });
         } else {
-            res.status(400).json({ success: false, message: "Invalid signature" });
+            return res.status(400).json({ success: false, message: "Invalid signature" });
         }
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-PaymentRoute.post("/create-payment-link", async (req, res) => {
-    try {
-        const { amount, customerName, customerEmail, customerPhone } = req.body;
-
-        const paymentLink = await razorpay.paymentLink.create({
-            amount: amount * 100, // Convert to paise
-            currency: "INR",
-            description: "Doctor Appointment",
-            customer: {
-                name: customerName,
-                email: customerEmail,
-                contact: customerPhone
-            },
-            notify: {
-                sms: true,
-                email: true
-            },
-            callback_url: "https://your-website.com/payment-success",
-            callback_method: "get"
-        });
-
-        res.json({ success: true, paymentLink: paymentLink.short_url });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET;
-
-
+// 📌 Razorpay Webhook for Auto Payment Verification
 PaymentRoute.post('/webhook/razorpay', express.json(), (req, res) => {
-    console.log("Received Webhook Data:", req.body);
-    res.json({ success: true, message: "Webhook received" });
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    const razorpaySignature = req.headers["x-razorpay-signature"];
+    const body = JSON.stringify(req.body);
+
+    const expectedSignature = crypto.createHmac("sha256", webhookSecret)
+        .update(body)
+        .digest("hex");
+
+    if (expectedSignature === razorpaySignature) {
+        console.log("✅ Webhook Verified:", req.body);
+
+        if (req.body.event === "payment.captured") {
+            const paymentId = req.body.payload.payment.entity.id;
+            console.log(`✅ Payment Captured! ID: ${paymentId}`);
+
+            // TODO: Update database with payment success status
+            return res.json({ success: true, message: "Payment processed" });
+        }
+        return res.json({ success: true, message: "Webhook received" });
+    } else {
+        console.error("❌ Invalid Webhook Signature");
+        return res.status(400).json({ success: false, message: "Invalid webhook signature" });
+    }
 });
 
 module.exports = PaymentRoute;

@@ -4,23 +4,24 @@ const AppointmentRecordsSchema = require("../model/AppointmentRecordsSchema");
 
 const PaymentRoute = express.Router();
 
-// Middleware to ensure raw request body is available
-PaymentRoute.post("/webhook/razorpay",
-    express.raw({ type: "application/json" }), 
+PaymentRoute.post("/webhook/razorpay", 
+    express.raw({ type: "application/json" }), // Ensure raw body is available
     async (req, res) => {
-
     try {
         const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
         const razorpaySignature = req.headers["x-razorpay-signature"];
 
-        // 🔴 If signature is missing, reject request
         if (!razorpaySignature) {
             return res.status(400).json({ success: false, message: "Missing Razorpay Signature" });
         }
 
-        // 🔹 Verify Razorpay Webhook Signature
-        const expectedSignature = crypto.createHmac("sha256", webhookSecret)
-            .update(req.body)  // Use raw body for HMAC verification
+        // Convert raw body to string before using it in HMAC
+        const rawBody = req.body.toString();  // Convert Buffer to String
+
+        // Verify Razorpay Webhook Signature
+        const expectedSignature = crypto
+            .createHmac("sha256", webhookSecret)
+            .update(rawBody)  // Use raw string
             .digest("hex");
 
         if (expectedSignature !== razorpaySignature) {
@@ -29,17 +30,16 @@ PaymentRoute.post("/webhook/razorpay",
 
         console.log("✅ Webhook Verified!");
 
-        // Convert raw body to JSON
-        const eventData = JSON.parse(req.body.toString());
+        // Parse JSON after signature verification
+        const eventData = JSON.parse(rawBody);
 
-        // ✅ Only process 'payment.captured' events
         if (eventData.event !== "payment.captured") {
             return res.json({ success: true, message: "Event received but not processed" });
         }
 
         const { id: paymentId, order_id: razorpayOrderId } = eventData.payload.payment.entity;
 
-        // 🔹 Find appointment using Razorpay Order ID
+        // Find appointment using Razorpay Order ID
         const appointment = await AppointmentRecordsSchema.findOne({ razorpay_order_id: razorpayOrderId });
 
         if (!appointment) {
@@ -47,7 +47,7 @@ PaymentRoute.post("/webhook/razorpay",
             return res.status(404).json({ success: false, message: "No appointment found for this payment" });
         }
 
-        // 🔹 Update payment status in the database
+        // Update payment status
         appointment.payment_status = "paid";
         appointment.payment_id = paymentId;
         await appointment.save();

@@ -1,71 +1,49 @@
-const express = require("express");
 const crypto = require("crypto");
+const express = require("express");
+const PaymentRoute = express.Router();
 const AppointmentRecordsSchema = require("../model/AppointmentRecordsSchema");
 
-const PaymentRoute = express.Router();
-
-PaymentRoute.post("/webhook/razorpay",
-    express.raw({ type: "application/json" }),  
-    async (req, res) => {
+// Ensure raw body parsing for Razorpay signature verification
+PaymentRoute.post("/webhook/razorpay", express.raw({ type: "application/json" }), async (req, res) => {
     try {
-        console.log("🔹 Webhook hit! Raw body received:", req.body.toString()); // Log raw request body
-        console.log("🔹 Headers:", req.headers); // Log request headers
-        console.log("🔹 Signature:", req.headers["x-razorpay-signature"]); // Log Razorpay signature
-
         const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
         const razorpaySignature = req.headers["x-razorpay-signature"];
 
-        if (!razorpaySignature) {
-            console.log("❌ Missing Razorpay Signature");
-            return res.status(400).json({ success: false, message: "Missing Razorpay Signature" });
-        }
+        if (!razorpaySignature) return res.status(400).json({ success: false, message: "Missing Razorpay Signature" });
 
-        const rawBody = req.body.toString();  
-
-        const expectedSignature = crypto
-            .createHmac("sha256", webhookSecret)
-            .update(rawBody)
-            .digest("hex");
-
-        console.log(`🔹 Expected Signature: ${expectedSignature}`);
-        console.log(`🔹 Received Signature: ${razorpaySignature}`);
-
+        // Verify signature
+        const expectedSignature = crypto.createHmac("sha256", webhookSecret).update(req.body).digest("hex");
         if (expectedSignature !== razorpaySignature) {
-            console.log("❌ Invalid Razorpay Signature");
+            console.error("❌ Invalid Razorpay Signature");
             return res.status(400).json({ success: false, message: "Invalid Razorpay Signature" });
         }
 
         console.log("✅ Webhook Verified!");
 
-        const eventData = JSON.parse(rawBody);
-        console.log("🔹 Event Data:", eventData);
+        const eventData = JSON.parse(req.body); // Convert raw body to JSON
 
-        if (eventData.event !== "payment.captured") {
-            console.log("ℹ️ Not a 'payment.captured' event. Ignoring...");
-            return res.json({ success: true, message: "Event received but not processed" });
-        }
+        // Process only "payment.captured" event
+        if (eventData.event !== "payment.captured") return res.json({ success: true, message: "Event ignored" });
 
         const { id: paymentId, order_id: razorpayOrderId } = eventData.payload.payment.entity;
 
-        console.log(`🔹 Payment Captured! Payment ID: ${paymentId}, Order ID: ${razorpayOrderId}`);
-
-        const appointment = await AppointmentRecordsSchema.findOne({ razorpay_order_id: razorpayOrderId });
+        // Find and update appointment
+        const appointment = await AppointmentRecordsSchema.findOneAndUpdate(
+            { razorpay_order_id: razorpayOrderId },
+            { payment_status: "paid", payment_id: paymentId },
+            { new: true }
+        );
 
         if (!appointment) {
-            console.error(`❌ No appointment found for Order ID: ${razorpayOrderId}`);
-            return res.status(404).json({ success: false, message: "No appointment found for this payment" });
+            console.error("❌ No matching appointment found for order_id:", razorpayOrderId);
+            return res.status(404).json({ success: false, message: "No matching appointment found" });
         }
 
-        appointment.payment_status = "paid";
-        appointment.payment_id = paymentId;
-        await appointment.save();
-
         console.log(`✅ Appointment Updated: ${appointment._id}`);
-
         return res.json({ success: true, message: "Payment verified, appointment confirmed" });
 
     } catch (error) {
-        console.error("❌ Error processing webhook:", error);
+        console.error("❌ Webhook Error:", error);
         return res.status(500).json({ success: false, message: "Internal server error" });
     }
 });

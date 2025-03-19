@@ -3,7 +3,6 @@ const express = require("express");
 const PaymentRoute = express.Router();
 const AppointmentRecordsSchema = require("../model/AppointmentRecordsSchema");
 
-// Ensure raw body parsing for Razorpay signature verification
 PaymentRoute.post("/webhook/razorpay", express.raw({ type: "application/json" }), async (req, res) => {
     try {
         const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
@@ -11,8 +10,12 @@ PaymentRoute.post("/webhook/razorpay", express.raw({ type: "application/json" })
 
         if (!razorpaySignature) return res.status(400).json({ success: false, message: "Missing Razorpay Signature" });
 
+        // Convert req.body (raw buffer) to string before hashing
+        const bodyString = req.body.toString();
+
         // Verify signature
-        const expectedSignature = crypto.createHmac("sha256", webhookSecret).update(req.body).digest("hex");
+        const expectedSignature = crypto.createHmac("sha256", webhookSecret).update(bodyString).digest("hex");
+
         if (expectedSignature !== razorpaySignature) {
             console.error("❌ Invalid Razorpay Signature");
             return res.status(400).json({ success: false, message: "Invalid Razorpay Signature" });
@@ -20,7 +23,7 @@ PaymentRoute.post("/webhook/razorpay", express.raw({ type: "application/json" })
 
         console.log("✅ Webhook Verified!");
 
-        const eventData = JSON.parse(req.body); // Convert raw body to JSON
+        const eventData = JSON.parse(bodyString); // Parse JSON from string
 
         // Process only "payment.captured" event
         if (eventData.event !== "payment.captured") return res.json({ success: true, message: "Event ignored" });

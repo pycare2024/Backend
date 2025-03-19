@@ -1,12 +1,11 @@
 const express = require("express");
 const crypto = require("crypto");
-const bodyParser = require("body-parser");
 const AppointmentRecordsSchema = require("../model/AppointmentRecordsSchema");
 
 const PaymentRoute = express.Router();
 
-PaymentRoute.post("/webhook/razorpay",
-    bodyParser.json({ verify: (req, res, buf) => { req.rawBody = buf.toString(); } }), 
+PaymentRoute.post("/webhook/razorpay", 
+    express.raw({ type: "application/json" }),  // ✅ Ensures raw body for HMAC verification
     async (req, res) => {
     
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
@@ -17,13 +16,14 @@ PaymentRoute.post("/webhook/razorpay",
         return res.status(400).json({ success: false, message: "Missing Razorpay Signature" });
     }
 
-    if (!req.rawBody) {
+    if (!req.body) {
         console.error("❌ Raw Body is undefined");
         return res.status(400).json({ success: false, message: "Invalid request body" });
     }
 
+    // Compute HMAC signature
     const expectedSignature = crypto.createHmac("sha256", webhookSecret)
-        .update(req.rawBody)
+        .update(req.body)  // ✅ Use raw request body for signature verification
         .digest("hex");
 
     if (expectedSignature !== razorpaySignature) {
@@ -31,11 +31,19 @@ PaymentRoute.post("/webhook/razorpay",
         return res.status(400).json({ success: false, message: "Invalid webhook signature" });
     }
 
-    console.log("✅ Webhook Verified:", req.body);
+    console.log("✅ Webhook Verified:", req.body.toString());
 
-    if (req.body.event === "payment.captured") {
+    let eventData;
+    try {
+        eventData = JSON.parse(req.body.toString());  // ✅ Convert raw body to JSON
+    } catch (error) {
+        console.error("❌ Failed to parse JSON:", error);
+        return res.status(400).json({ success: false, message: "Invalid JSON format" });
+    }
+
+    if (eventData.event === "payment.captured") {
         try {
-            const { id: paymentId, payment_link_id } = req.body.payload.payment.entity;
+            const { id: paymentId, payment_link_id } = eventData.payload.payment.entity;
 
             console.log(`✅ Payment Captured! ID: ${paymentId}, Payment Link ID: ${payment_link_id}`);
 
@@ -46,6 +54,7 @@ PaymentRoute.post("/webhook/razorpay",
                 return res.status(404).json({ success: false, message: "No appointment found for this payment" });
             }
 
+            // Update appointment status
             appointment.payment_status = "paid";
             appointment.payment_id = paymentId;
             await appointment.save();

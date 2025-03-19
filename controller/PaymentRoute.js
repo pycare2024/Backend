@@ -3,18 +3,24 @@ const express = require("express");
 const PaymentRoute = express.Router();
 const AppointmentRecordsSchema = require("../model/AppointmentRecordsSchema");
 
-PaymentRoute.post("/webhook/razorpay", express.raw({ type: "application/json" }), async (req, res) => {
+// Ensure raw body parsing using a middleware
+const rawBodySaver = (req, res, buf) => {
+    req.rawBody = buf; // Store the raw buffer for later use
+};
+
+PaymentRoute.post("/webhook/razorpay", express.json({ verify: rawBodySaver }), async (req, res) => {
     try {
         const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
         const razorpaySignature = req.headers["x-razorpay-signature"];
 
-        if (!razorpaySignature) return res.status(400).json({ success: false, message: "Missing Razorpay Signature" });
+        if (!razorpaySignature) {
+            return res.status(400).json({ success: false, message: "Missing Razorpay Signature" });
+        }
 
-        // Convert req.body (raw buffer) to string before hashing
-        const bodyString = req.body.toString();
-
-        // Verify signature
-        const expectedSignature = crypto.createHmac("sha256", webhookSecret).update(bodyString).digest("hex");
+        // Use the manually saved raw buffer for signature verification
+        const expectedSignature = crypto.createHmac("sha256", webhookSecret)
+            .update(req.rawBody) // Use raw body buffer
+            .digest("hex");
 
         if (expectedSignature !== razorpaySignature) {
             console.error("❌ Invalid Razorpay Signature");
@@ -23,10 +29,12 @@ PaymentRoute.post("/webhook/razorpay", express.raw({ type: "application/json" })
 
         console.log("✅ Webhook Verified!");
 
-        const eventData = JSON.parse(bodyString); // Parse JSON from string
+        const eventData = req.body; // Now we can use the parsed JSON body safely
 
         // Process only "payment.captured" event
-        if (eventData.event !== "payment.captured") return res.json({ success: true, message: "Event ignored" });
+        if (eventData.event !== "payment.captured") {
+            return res.json({ success: true, message: "Event ignored" });
+        }
 
         const { id: paymentId, order_id: razorpayOrderId } = eventData.payload.payment.entity;
 

@@ -1,39 +1,20 @@
 const express = require("express");
 const crypto = require("crypto");
-const razorpay = require("../razorpay"); // Import Razorpay instance
+const AppointmentRecordsSchema = require("../model/AppointmentRecordsSchema");
 
 const PaymentRoute = express.Router();
 
-// 📌 Route to Verify Payment Signature
-PaymentRoute.post("/verify-payment", async (req, res) => {
-    try {
-        const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
-
-        const hmac = crypto.createHmac("sha256", process.env.RAZORPAY_SECRET);
-        hmac.update(`${razorpay_order_id}|${razorpay_payment_id}`);
-        const generated_signature = hmac.digest("hex");
-
-        if (generated_signature === razorpay_signature) {
-            console.log("✅ Payment Verified:", razorpay_payment_id);
-
-            // TODO: Update database with payment success status
-            return res.json({ success: true, message: "Payment verified successfully!" });
-        } else {
-            return res.status(400).json({ success: false, message: "Invalid signature" });
-        }
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// 📌 Razorpay Webhook for Auto Payment Verification
-PaymentRoute.post('/webhook/razorpay', express.json(), async (req, res) => {
+PaymentRoute.post("/webhook/razorpay", express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }), async (req, res) => {
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
     const razorpaySignature = req.headers["x-razorpay-signature"];
-    const body = JSON.stringify(req.body);
+
+    if (!razorpaySignature) {
+        console.error("❌ Missing Razorpay Signature");
+        return res.status(400).json({ success: false, message: "Missing Razorpay Signature" });
+    }
 
     const expectedSignature = crypto.createHmac("sha256", webhookSecret)
-        .update(body)
+        .update(req.rawBody)
         .digest("hex");
 
     if (expectedSignature !== razorpaySignature) {
@@ -45,15 +26,15 @@ PaymentRoute.post('/webhook/razorpay', express.json(), async (req, res) => {
 
     if (req.body.event === "payment.captured") {
         try {
-            const { id: paymentId, order_id: orderId, amount, status } = req.body.payload.payment.entity;
+            const { id: paymentId, order_id: orderId, payment_link_id, amount, status } = req.body.payload.payment.entity;
 
-            console.log(`✅ Payment Captured! ID: ${paymentId}, Order ID: ${orderId}`);
+            console.log(`✅ Payment Captured! ID: ${paymentId}, Payment Link ID: ${payment_link_id}`);
 
-            // 🔍 Find the appointment with this order ID
-            const appointment = await AppointmentRecordsSchema.findOne({ razorpay_order_id: orderId });
+            // 🔍 Find the appointment with this payment link ID
+            const appointment = await AppointmentRecordsSchema.findOne({ razorpay_payment_link_id: payment_link_id });
 
             if (!appointment) {
-                console.error(`❌ No appointment found for Order ID: ${orderId}`);
+                console.error(`❌ No appointment found for Payment Link ID: ${payment_link_id}`);
                 return res.status(404).json({ success: false, message: "No appointment found for this payment" });
             }
 
@@ -63,6 +44,9 @@ PaymentRoute.post('/webhook/razorpay', express.json(), async (req, res) => {
             await appointment.save();
 
             console.log(`✅ Appointment Confirmed: ${appointment._id}`);
+
+            // ✅ Send Confirmation Message (WATI or other notification service)
+            // await sendWhatsAppMessage(appointment.patient_id, "Your appointment is confirmed!");
 
             return res.json({ success: true, message: "Payment verified and appointment confirmed" });
         } catch (error) {

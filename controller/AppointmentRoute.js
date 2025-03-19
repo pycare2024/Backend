@@ -6,6 +6,9 @@ const AppointmentRoute = express.Router();
 const DoctorScheduleSchema = require("../model/DoctorScheduleSchema");
 const AppointmentRecordsSchema = require("../model/AppointmentRecordsSchema");
 const DoctorsAssignmentPrioritySchema = require("../model/DoctorsAssignmentPrioritySchema"); // ✅ Import this!
+const axios = require("axios");
+
+
 
 AppointmentRoute.get("/appointments", (req, res) => {
     AppointmentRecordsSchema.find((err, data) => {
@@ -129,10 +132,10 @@ AppointmentRoute.get('/availableDates', async (req, res) => {
 
 AppointmentRoute.post("/bookAppointment", async (req, res) => {
     try {
-        const { selectedDate, patient_id, amount } = req.body; // Amount added for payment
+        const { selectedDate, patient_id} = req.body; // Added patient details
 
         if (!selectedDate || !patient_id) {
-            return res.status(400).json({ message: "Date and Patient ID are required." });
+            return res.status(400).json({ message: "All fields are required." });
         }
 
         if (!mongoose.Types.ObjectId.isValid(patient_id)) {
@@ -201,41 +204,41 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             DateOfAppointment: appointmentDate,
             WeekDay: selectedDoctor.WeekDay,
             payment_status: "pending",
-            razorpay_order_id: null,
+            razorpay_payment_link_id: null,
             payment_id: null,
         });
 
         await newAppointment.save();
 
-        // ✅ Step 4: Generate a Razorpay Order
-        const options = {
-            amount: 100, // Convert to paise
+        // ✅ Step 4: Generate a Razorpay Payment Link
+        const paymentLinkResponse = await razorpay.paymentLink.create({
+            amount:100, // Convert amount to paise
             currency: "INR",
-            receipt: `receipt_${newAppointment._id}`, // Use appointment ID as receipt
-            payment_capture: 1,
-        };
+            accept_partial: false,
+            description: "Appointment Booking Fee",
+            notify: {
+                sms: true,
+                email: false, // Set to true if email is available
+            },
+        });
 
-        const order = await razorpay.orders.create(options);
-
-        // Update appointment record with Razorpay order ID
-        newAppointment.razorpay_order_id = order.id;
+        // ✅ Step 5: Update Appointment Record with Payment Link ID
+        newAppointment.razorpay_payment_link_id = paymentLinkResponse.id;
         await newAppointment.save();
 
-        // ✅ Step 5: Reduce Available Slots for the Selected Doctor
+        // ✅ Step 6: Reduce Available Slots for the Selected Doctor
         await DoctorScheduleSchema.updateOne(
             { _id: selectedDoctor._id },
             { $inc: { SlotsAvailable: -1 } }
         );
 
-        // ✅ Step 6: Return Payment Link to Chatbot
-        const paymentLink = `https://checkout.razorpay.com/v1/checkout.js?order_id=${order.id}`;
-
+        // ✅ Step 7: Return Payment Link to Chatbot
         return res.status(200).json({
             message: "Appointment booked pending payment.",
             doctorId: selectedDoctor.doctor_id,
             remainingSlots: selectedDoctor.SlotsAvailable - 1,
             appointmentDetails: newAppointment,
-            paymentLink, // Send payment link
+            paymentLink: paymentLinkResponse.short_url, // ✅ Send Payment Link to Chatbot
         });
 
     } catch (error) {
@@ -246,7 +249,6 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
         });
     }
 });
-
 
 module.exports = AppointmentRoute;
 

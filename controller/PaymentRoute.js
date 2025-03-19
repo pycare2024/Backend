@@ -4,25 +4,6 @@ const razorpay = require("../razorpay"); // Import Razorpay instance
 
 const PaymentRoute = express.Router();
 
-// 📌 Route to Create a Payment Order
-PaymentRoute.post("/create-order", async (req, res) => {
-    try {
-        const { amount } = req.body;
-
-        const options = {
-            amount: amount * 100, // Convert to paise
-            currency: "INR",
-            receipt: `receipt_${Date.now()}`,
-            payment_capture: 1, // Auto-capture payment
-        };
-
-        const order = await razorpay.orders.create(options);
-        res.json(order);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
 // 📌 Route to Verify Payment Signature
 PaymentRoute.post("/verify-payment", async (req, res) => {
     try {

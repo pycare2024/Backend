@@ -1,9 +1,10 @@
 const express = require("express");
 const mongoose = require("mongoose");
+const crypto = require("crypto");
+const razorpay = require("../razorpay");
 const AppointmentRoute = express.Router();
 const DoctorScheduleSchema = require("../model/DoctorScheduleSchema");
 const AppointmentRecordsSchema = require("../model/AppointmentRecordsSchema");
-const DoctorSchema = require("../model/DoctorSchema");
 const DoctorsAssignmentPrioritySchema = require("../model/DoctorsAssignmentPrioritySchema"); // ✅ Import this!
 
 AppointmentRoute.get("/appointments", (req, res) => {
@@ -126,11 +127,10 @@ AppointmentRoute.get('/availableDates', async (req, res) => {
     }
 });
 
-AppointmentRoute.post('/bookAppointment', async (req, res) => {
+AppointmentRoute.post("/bookAppointment", async (req, res) => {
     try {
-        const { selectedDate, patient_id } = req.body;
+        const { selectedDate, patient_id, amount } = req.body; // Amount added for payment
 
-        // Validate input
         if (!selectedDate || !patient_id) {
             return res.status(400).json({ message: "Date and Patient ID are required." });
         }
@@ -139,16 +139,14 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
             return res.status(400).json({ message: "Invalid Patient ID." });
         }
 
-        // Parse the selected date
         const date = new Date(selectedDate);
         if (isNaN(date)) {
             return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD." });
         }
 
-        // Ensure date is at UTC midnight
         const appointmentDate = new Date(date.setUTCHours(0, 0, 0, 0));
 
-        // Check if an appointment already exists for the patient on the selected date
+        // ✅ Step 1: Check if the patient already has an appointment on this date
         const existingAppointment = await AppointmentRecordsSchema.findOne({
             patient_id,
             DateOfAppointment: appointmentDate,
@@ -161,10 +159,9 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
             });
         }
 
-        // Fetch the last assigned doctor for this date
+        // ✅ Step 2: Find an available doctor (Round-robin assignment)
         let lastAssignment = await DoctorsAssignmentPrioritySchema.findOne({ Date: appointmentDate });
 
-        // Get all available doctors sorted by doctor_id
         const availableDoctors = await DoctorScheduleSchema.find({ 
             Date: appointmentDate, 
             SlotsAvailable: { $gt: 0 } 
@@ -180,53 +177,65 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
         let selectedDoctor;
 
         if (!lastAssignment) {
-            // First appointment for this date, assign the first available doctor
             selectedDoctor = availableDoctors[0];
-
-            // Create a new entry in DoctorsAssignmentPriority
             await DoctorsAssignmentPrioritySchema.create({
                 Date: appointmentDate,
                 LastDoctorAssigned: selectedDoctor.doctor_id
             });
-
         } else {
-            // Find the next doctor in round-robin order
             const lastAssignedDoctorIndex = availableDoctors.findIndex(doc => doc.doctor_id.toString() === lastAssignment.LastDoctorAssigned.toString());
+            selectedDoctor = (lastAssignedDoctorIndex === -1 || lastAssignedDoctorIndex === availableDoctors.length - 1)
+                ? availableDoctors[0]
+                : availableDoctors[lastAssignedDoctorIndex + 1];
 
-            if (lastAssignedDoctorIndex === -1 || lastAssignedDoctorIndex === availableDoctors.length - 1) {
-                // If last assigned doctor is not in the list or it's the last doctor, select the first doctor
-                selectedDoctor = availableDoctors[0];
-            } else {
-                // Select the next doctor in the list
-                selectedDoctor = availableDoctors[lastAssignedDoctorIndex + 1];
-            }
-
-            // Update the DoctorsAssignmentPriority table
             await DoctorsAssignmentPrioritySchema.updateOne(
                 { Date: appointmentDate },
                 { $set: { LastDoctorAssigned: selectedDoctor.doctor_id } }
             );
         }
 
-        // Book the appointment and update doctor's schedule
+        // ✅ Step 3: Create a "Pending" Appointment Record Before Payment
+        const newAppointment = new AppointmentRecordsSchema({
+            patient_id,
+            doctor_id: selectedDoctor.doctor_id,
+            DateOfAppointment: appointmentDate,
+            WeekDay: selectedDoctor.WeekDay,
+            payment_status: "pending",
+            razorpay_order_id: null,
+            payment_id: null,
+        });
+
+        await newAppointment.save();
+
+        // ✅ Step 4: Generate a Razorpay Order
+        const options = {
+            amount: 100, // Convert to paise
+            currency: "INR",
+            receipt: `receipt_${newAppointment._id}`, // Use appointment ID as receipt
+            payment_capture: 1,
+        };
+
+        const order = await razorpay.orders.create(options);
+
+        // Update appointment record with Razorpay order ID
+        newAppointment.razorpay_order_id = order.id;
+        await newAppointment.save();
+
+        // ✅ Step 5: Reduce Available Slots for the Selected Doctor
         await DoctorScheduleSchema.updateOne(
             { _id: selectedDoctor._id },
             { $inc: { SlotsAvailable: -1 } }
         );
 
-        // Create a new appointment record
-        const appointment = await AppointmentRecordsSchema.create({
-            patient_id,
-            doctor_id: selectedDoctor.doctor_id,
-            DateOfAppointment: appointmentDate,
-            WeekDay: selectedDoctor.WeekDay,
-        });
+        // ✅ Step 6: Return Payment Link to Chatbot
+        const paymentLink = `https://checkout.razorpay.com/v1/checkout.js?order_id=${order.id}`;
 
         return res.status(200).json({
-            message: "Appointment successfully booked.",
+            message: "Appointment booked pending payment.",
             doctorId: selectedDoctor.doctor_id,
-            remainingSlots: selectedDoctor.SlotsAvailable - 1, // Since we just decremented
-            appointmentDetails: appointment,
+            remainingSlots: selectedDoctor.SlotsAvailable - 1,
+            appointmentDetails: newAppointment,
+            paymentLink, // Send payment link
         });
 
     } catch (error) {
@@ -240,3 +249,4 @@ AppointmentRoute.post('/bookAppointment', async (req, res) => {
 
 
 module.exports = AppointmentRoute;
+

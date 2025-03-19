@@ -27,7 +27,7 @@ PaymentRoute.post("/verify-payment", async (req, res) => {
 });
 
 // 📌 Razorpay Webhook for Auto Payment Verification
-PaymentRoute.post('/webhook/razorpay', express.json(), (req, res) => {
+PaymentRoute.post('/webhook/razorpay', express.json(), async (req, res) => {
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
     const razorpaySignature = req.headers["x-razorpay-signature"];
     const body = JSON.stringify(req.body);
@@ -36,21 +36,42 @@ PaymentRoute.post('/webhook/razorpay', express.json(), (req, res) => {
         .update(body)
         .digest("hex");
 
-    if (expectedSignature === razorpaySignature) {
-        console.log("✅ Webhook Verified:", req.body);
-
-        if (req.body.event === "payment.captured") {
-            const paymentId = req.body.payload.payment.entity.id;
-            console.log(`✅ Payment Captured! ID: ${paymentId}`);
-
-            // TODO: Update database with payment success status
-            return res.json({ success: true, message: "Payment processed" });
-        }
-        return res.json({ success: true, message: "Webhook received" });
-    } else {
+    if (expectedSignature !== razorpaySignature) {
         console.error("❌ Invalid Webhook Signature");
         return res.status(400).json({ success: false, message: "Invalid webhook signature" });
     }
+
+    console.log("✅ Webhook Verified:", req.body);
+
+    if (req.body.event === "payment.captured") {
+        try {
+            const { id: paymentId, order_id: orderId, amount, status } = req.body.payload.payment.entity;
+
+            console.log(`✅ Payment Captured! ID: ${paymentId}, Order ID: ${orderId}`);
+
+            // 🔍 Find the appointment with this order ID
+            const appointment = await AppointmentRecordsSchema.findOne({ razorpay_order_id: orderId });
+
+            if (!appointment) {
+                console.error(`❌ No appointment found for Order ID: ${orderId}`);
+                return res.status(404).json({ success: false, message: "No appointment found for this payment" });
+            }
+
+            // ✅ Update the appointment with payment details
+            appointment.payment_status = "paid";
+            appointment.payment_id = paymentId;
+            await appointment.save();
+
+            console.log(`✅ Appointment Confirmed: ${appointment._id}`);
+
+            return res.json({ success: true, message: "Payment verified and appointment confirmed" });
+        } catch (error) {
+            console.error("❌ Error processing webhook:", error);
+            return res.status(500).json({ success: false, message: "Error processing payment verification" });
+        }
+    }
+
+    return res.json({ success: true, message: "Webhook received" });
 });
 
 module.exports = PaymentRoute;

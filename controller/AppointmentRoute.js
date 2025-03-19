@@ -132,7 +132,7 @@ AppointmentRoute.get('/availableDates', async (req, res) => {
 
 AppointmentRoute.post("/bookAppointment", async (req, res) => {
     try {
-        const { selectedDate, patient_id} = req.body; // Added patient details
+        const { selectedDate, patient_id} = req.body; 
 
         if (!selectedDate || !patient_id) {
             return res.status(400).json({ message: "All fields are required." });
@@ -142,14 +142,12 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             return res.status(400).json({ message: "Invalid Patient ID." });
         }
 
-        const date = new Date(selectedDate);
-        if (isNaN(date)) {
+        const appointmentDate = new Date(selectedDate);
+        if (isNaN(appointmentDate)) {
             return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD." });
         }
 
-        const appointmentDate = new Date(date.setUTCHours(0, 0, 0, 0));
-
-        // ✅ Step 1: Check if the patient already has an appointment on this date
+        // ✅ Check if the patient already has an appointment on this date
         const existingAppointment = await AppointmentRecordsSchema.findOne({
             patient_id,
             DateOfAppointment: appointmentDate,
@@ -162,7 +160,7 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             });
         }
 
-        // ✅ Step 2: Find an available doctor (Round-robin assignment)
+        // ✅ Find an available doctor (Round-robin selection)
         let lastAssignment = await DoctorsAssignmentPrioritySchema.findOne({ Date: appointmentDate });
 
         const availableDoctors = await DoctorScheduleSchema.find({ 
@@ -178,7 +176,6 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
         }
 
         let selectedDoctor;
-
         if (!lastAssignment) {
             selectedDoctor = availableDoctors[0];
             await DoctorsAssignmentPrioritySchema.create({
@@ -197,42 +194,52 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             );
         }
 
-        // ✅ Step 3: Create a "Pending" Appointment Record Before Payment
+        // ✅ Step 1: Create a Razorpay Order
+        const order = await razorpay.orders.create({
+            amount: 100, //(in paise)
+            currency: "INR",
+            receipt: `receipt_${Date.now()}`,
+            payment_capture: 1, // Auto-capture payment
+        });
+
+        // ✅ Step 2: Create a "Pending" Appointment Record
         const newAppointment = new AppointmentRecordsSchema({
             patient_id,
             doctor_id: selectedDoctor.doctor_id,
             DateOfAppointment: appointmentDate,
             WeekDay: selectedDoctor.WeekDay,
             payment_status: "pending",
-            razorpay_payment_link_id: null,
             payment_id: null,
+            razorpay_order_id: order.id, // ✅ Store Razorpay Order ID
+            razorpay_payment_link_id: null,
         });
 
         await newAppointment.save();
 
-        // ✅ Step 4: Generate a Razorpay Payment Link
+        // ✅ Step 3: Generate a Razorpay Payment Link
         const paymentLinkResponse = await razorpay.paymentLink.create({
-            amount:100, // Convert amount to paise
+            amount: 100, // Convert ₹100 to paise
             currency: "INR",
             accept_partial: false,
             description: "Appointment Booking Fee",
             notify: {
                 sms: true,
-                email: false, // Set to true if email is available
+                email: false,
             },
+            reference_id: order.id, // ✅ Link payment link to order
         });
 
-        // ✅ Step 5: Update Appointment Record with Payment Link ID
+        // ✅ Step 4: Update Appointment Record with Payment Link ID
         newAppointment.razorpay_payment_link_id = paymentLinkResponse.id;
         await newAppointment.save();
 
-        // ✅ Step 6: Reduce Available Slots for the Selected Doctor
+        // ✅ Step 5: Reduce Available Slots for the Selected Doctor
         await DoctorScheduleSchema.updateOne(
             { _id: selectedDoctor._id },
             { $inc: { SlotsAvailable: -1 } }
         );
 
-        // ✅ Step 7: Return Payment Link to Chatbot
+        // ✅ Step 6: Return Payment Link to Chatbot
         return res.status(200).json({
             message: "Appointment booked pending payment.",
             doctorId: selectedDoctor.doctor_id,

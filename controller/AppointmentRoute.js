@@ -194,7 +194,20 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             );
         }
 
-        // ✅ Step 1: Generate a Razorpay Payment Link (No Need to Create an Order)
+        // ✅ Step 1: Create an Appointment Record First
+        const newAppointment = new AppointmentRecordsSchema({
+            patient_id,
+            doctor_id: selectedDoctor.doctor_id,
+            DateOfAppointment: appointmentDate,
+            WeekDay: selectedDoctor.WeekDay,
+            payment_status: "pending",
+            payment_id: null,
+            payment_link_id: null, // Will update after payment link creation
+        });
+
+        const savedAppointment = await newAppointment.save();
+
+        // ✅ Step 2: Generate a Razorpay Payment Link
         const paymentLinkResponse = await razorpay.paymentLink.create({
             amount: 100, // ₹100 converted to paise
             currency: "INR",
@@ -204,38 +217,31 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
                 sms: true,
                 email: false,
             },
-            reference_id: `appointment_${Date.now()}`, // ✅ Unique Reference ID
+            reference_id: `appointment_${savedAppointment._id}`, // ✅ Use Appointment ID as Reference
             notes: {
-                payment_link_id: `appointment_${Date.now()}`, // ✅ Storing Payment Link ID in Notes
-                patient_id: patient_id, // (Optional) Store Patient ID for reference
+                appointment_id: savedAppointment._id.toString(), // ✅ Store the Appointment Record ID
+                patient_id: patient_id, 
             }
         });
 
-        // ✅ Step 2: Create a "Pending" Appointment Record
-        const newAppointment = new AppointmentRecordsSchema({
-            patient_id,
-            doctor_id: selectedDoctor.doctor_id,
-            DateOfAppointment: appointmentDate,
-            WeekDay: selectedDoctor.WeekDay,
-            payment_status: "pending",
-            payment_id: null,
-            payment_link_id: paymentLinkResponse.id, // ✅ Store Razorpay Payment Link ID
-        });
+        // ✅ Step 3: Update Appointment Record with Payment Link ID
+        await AppointmentRecordsSchema.updateOne(
+            { _id: savedAppointment._id },
+            { $set: { payment_link_id: paymentLinkResponse.id } }
+        );
 
-        await newAppointment.save();
-
-        // ✅ Step 3: Reduce Available Slots for the Selected Doctor
+        // ✅ Step 4: Reduce Available Slots for the Selected Doctor
         await DoctorScheduleSchema.updateOne(
             { _id: selectedDoctor._id },
             { $inc: { SlotsAvailable: -1 } }
         );
 
-        // ✅ Step 4: Return Payment Link to Chatbot
+        // ✅ Step 5: Return Payment Link to Chatbot
         return res.status(200).json({
             message: "Appointment booked pending payment.",
             doctorId: selectedDoctor.doctor_id,
             remainingSlots: selectedDoctor.SlotsAvailable - 1,
-            appointmentDetails: newAppointment,
+            appointmentDetails: savedAppointment,
             paymentLink: paymentLinkResponse.short_url, // ✅ Correct Payment Link
         });
 
@@ -269,29 +275,25 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
 
         console.log("✅ Webhook signature verified");
 
-        const event = req.body;
+        const {event , payload } = req.body;
 
-        console.log("Received Payload:", JSON.stringify(event, null, 2))
+        console.log("Received Payload:", payload);
 
-        if (event.event === "payment.captured") {
-            const paymentId = event.payload.payment.entity.id;
-            const paymentLinkId =event.payload.payment.entity.notes.payment_link_id;
+        if (event === "payment.captured") {
+            const paymentData = payload.payment.entity;
+            const appointmentId = paymentData.notes.appointment_id;
             
-            console.log("🔹 Payment Captured for Payment Link ID:", paymentLinkId);
+            console.log("🔹 Payment Captured for AppointmentID", appointmentId);
 
-            // Find and update the appointment record
-            const appointment = await AppointmentRecordsSchema.findOneAndUpdate(
-                { payment_link_id: paymentLinkId},
-                { $set: { payment_status: "confirmed", payment_id: paymentId } },
-                { new: true }
-            );
-
-            if (!appointment) {
-                console.error("❌ No matching appointment found for Payment Link ID:", paymentLinkId);
-                return res.status(404).json({ message: "Appointment not found" });
+            if (!appointmentId) {
+                return res.status(400).json({ message: "No appointment ID found in payment notes." });
             }
 
-            console.log("✅ Appointment Updated:", appointment);
+            // ✅ Update Appointment Status to "confirmed"
+            await AppointmentRecordsSchema.updateOne(
+                { _id: appointmentId },
+                { $set: { payment_status: "confirmed", payment_id: paymentData.id } }
+            );
 
             return res.status(200).json({ message: "Payment verified and appointment confirmed." });
         }

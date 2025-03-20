@@ -132,7 +132,7 @@ AppointmentRoute.get('/availableDates', async (req, res) => {
 
 AppointmentRoute.post("/bookAppointment", async (req, res) => {
     try {
-        const { selectedDate, patient_id} = req.body; 
+        const { selectedDate, patient_id } = req.body;
 
         if (!selectedDate || !patient_id) {
             return res.status(400).json({ message: "All fields are required." });
@@ -194,12 +194,17 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             );
         }
 
-        // ✅ Step 1: Create a Razorpay Order
-        const order = await razorpay.orders.create({
-            amount: 100, //(in paise)
+        // ✅ Step 1: Generate a Razorpay Payment Link (No Need to Create an Order)
+        const paymentLinkResponse = await razorpay.paymentLink.create({
+            amount: 100, // ₹100 converted to paise
             currency: "INR",
-            receipt: `receipt_${Date.now()}`,
-            payment_capture: 1, // Auto-capture payment
+            accept_partial: false,
+            description: "Appointment Booking Fee",
+            notify: {
+                sms: true,
+                email: false,
+            },
+            reference_id: `appointment_${Date.now()}`, // ✅ Unique Reference ID
         });
 
         // ✅ Step 2: Create a "Pending" Appointment Record
@@ -210,42 +215,24 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             WeekDay: selectedDoctor.WeekDay,
             payment_status: "pending",
             payment_id: null,
-            razorpay_order_id: order.id, // ✅ Store Razorpay Order ID
-            razorpay_payment_link_id: null,
+            razorpay_payment_link_id: paymentLinkResponse.id, // ✅ Store Razorpay Payment Link ID
         });
 
         await newAppointment.save();
 
-        // ✅ Step 3: Generate a Razorpay Payment Link
-        const paymentLinkResponse = await razorpay.paymentLink.create({
-            amount: 100, // Convert ₹100 to paise
-            currency: "INR",
-            accept_partial: false,
-            description: "Appointment Booking Fee",
-            notify: {
-                sms: true,
-                email: false,
-            },
-            reference_id: order.id, // ✅ Link payment link to order
-        });
-
-        // ✅ Step 4: Update Appointment Record with Payment Link ID
-        newAppointment.razorpay_payment_link_id = paymentLinkResponse.id;
-        await newAppointment.save();
-
-        // ✅ Step 5: Reduce Available Slots for the Selected Doctor
+        // ✅ Step 3: Reduce Available Slots for the Selected Doctor
         await DoctorScheduleSchema.updateOne(
             { _id: selectedDoctor._id },
             { $inc: { SlotsAvailable: -1 } }
         );
 
-        // ✅ Step 6: Return Payment Link to Chatbot
+        // ✅ Step 4: Return Payment Link to Chatbot
         return res.status(200).json({
             message: "Appointment booked pending payment.",
             doctorId: selectedDoctor.doctor_id,
             remainingSlots: selectedDoctor.SlotsAvailable - 1,
             appointmentDetails: newAppointment,
-            paymentLink: paymentLinkResponse.short_url, // ✅ Send Payment Link to Chatbot
+            paymentLink: paymentLinkResponse.short_url, // ✅ Correct Payment Link
         });
 
     } catch (error) {
@@ -257,50 +244,9 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
     }
 });
 
-AppointmentRoute.post("/verify-payment", async (req, res) => {
-    try {
-        const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = req.body;
-
-        if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
-            return res.status(400).json({ message: "Missing payment details." });
-        }
-
-        // ✅ Step 1: Verify the payment signature
-        const generated_signature = crypto
-            .createHmac("sha256", "YOUR_RAZORPAY_SECRET")
-            .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-            .digest("hex");
-
-        if (generated_signature !== razorpay_signature) {
-            return res.status(400).json({ message: "Invalid payment signature." });
-        }
-
-        // ✅ Step 2: Find the appointment record using order_id
-        const appointment = await AppointmentRecordsSchema.findOne({ razorpay_order_id });
-
-        if (!appointment) {
-            return res.status(404).json({ message: "Appointment not found." });
-        }
-
-        // ✅ Step 3: Update appointment with payment details
-        appointment.payment_status = "paid";
-        appointment.payment_id = razorpay_payment_id;
-        await appointment.save();
-
-        return res.status(200).json({
-            message: "Payment verified successfully. Appointment confirmed!",
-            appointmentDetails: appointment,
-        });
-
-    } catch (error) {
-        console.error("Payment verification error:", error);
-        return res.status(500).json({ message: "Payment verification failed.", error: error.message });
-    }
-});
-
 AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
     try {
-        const webhookSecret = "Agarwal@2019"; // Replace with your actual Razorpay webhook secret
+        const webhookSecret = "Agarwal@2020"; // Replace with your actual Razorpay webhook secret
         const receivedSignature = req.headers["x-razorpay-signature"];
         const body = JSON.stringify(req.body);
 
@@ -308,6 +254,9 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
         const expectedSignature = crypto.createHmac("sha256", webhookSecret)
             .update(body)
             .digest("hex");
+
+        console.log("Recieved Sign",receivedSignature);    
+        console.log("Expected Signature",expectedSignature);    
 
         if (expectedSignature !== receivedSignature) {
             console.error("❌ Invalid signature! Possible security breach.");
@@ -320,19 +269,19 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
 
         if (event.event === "payment.captured") {
             const paymentId = event.payload.payment.entity.id;
-            const orderId = event.payload.payment.entity.order_id;
+            const paymentLinkId = event.payload.payment.entity.notes.payment_link_id;
 
-            console.log("🔹 Payment Captured for Order ID:", orderId);
+            console.log("🔹 Payment Captured for Payment Link ID:", paymentLinkId);
 
             // Find and update the appointment record
             const appointment = await AppointmentRecordsSchema.findOneAndUpdate(
-                { razorpay_order_id: orderId },
+                { razorpay_payment_link_id: paymentLinkId },
                 { $set: { payment_status: "confirmed", payment_id: paymentId } },
                 { new: true }
             );
 
             if (!appointment) {
-                console.error("❌ No matching appointment found for Order ID:", orderId);
+                console.error("❌ No matching appointment found for Payment Link ID:", paymentLinkId);
                 return res.status(404).json({ message: "Appointment not found" });
             }
 

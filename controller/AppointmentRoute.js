@@ -215,7 +215,7 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             WeekDay: selectedDoctor.WeekDay,
             payment_status: "pending",
             payment_id: null,
-            razorpay_payment_link_id: paymentLinkResponse.id, // ✅ Store Razorpay Payment Link ID
+            payment_link_id: paymentLinkResponse.id, // ✅ Store Razorpay Payment Link ID
         });
 
         await newAppointment.save();
@@ -275,7 +275,7 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
 
             // Find and update the appointment record
             const appointment = await AppointmentRecordsSchema.findOneAndUpdate(
-                { razorpay_payment_link_id: paymentLinkId },
+                { payment_link_id: paymentLinkId },
                 { $set: { payment_status: "confirmed", payment_id: paymentId } },
                 { new: true }
             );

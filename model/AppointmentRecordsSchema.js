@@ -9,7 +9,7 @@ const AppointmentRecordsSchema=new mongoose.Schema({
     "WeekDay":{type:String},
     "payment_status":{type:String},
     "payment_id":{type:String},
-    "razorpay_payment_link_id":{type:String},
+    "payment_link_id":{type:String},
 },{
     collection:"AppointmentRecords"
 })

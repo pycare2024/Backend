@@ -205,6 +205,10 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
                 email: false,
             },
             reference_id: `appointment_${Date.now()}`, // ✅ Unique Reference ID
+            notes: {
+                payment_link_id: `appointment_${Date.now()}`, // ✅ Storing Payment Link ID in Notes
+                patient_id: patient_id, // (Optional) Store Patient ID for reference
+            }
         });
 
         // ✅ Step 2: Create a "Pending" Appointment Record
@@ -271,7 +275,7 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
 
         if (event.event === "payment.captured") {
             const paymentId = event.payload.payment.entity.id;
-            const paymentLinkId =event.payload.payment.entity["payment_link_id"];
+            const paymentLinkId =event.payload.payment.entity.notes.payment_link_id;
             
             console.log("🔹 Payment Captured for Payment Link ID:", paymentLinkId);
 

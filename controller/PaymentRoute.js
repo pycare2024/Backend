@@ -1,64 +1,44 @@
 const express = require("express");
-const PaymentRoute = express.Router();
 const crypto = require("crypto");
-const AppointmentRecordsSchema = require("../model/AppointmentRecordsSchema"); // Import DB model
 
-PaymentRoute.post("/webhook/razorpay", async (req, res) => {
+const PaymentRoute = express.Router();
+
+// ✅ Apply express.raw() to receive raw Buffer data
+PaymentRoute.post("/webhook/razorpay", express.raw({ type: "application/json" }), (req, res) => {
     try {
-        const webhookSecret = "Payments@Psycare2025"; // Ensure it's correct
+        const WEBHOOK_SECRET = "Payments@Psycare2025"; // Your Razorpay webhook secret
         const razorpaySignature = req.headers["x-razorpay-signature"];
-        const payload = JSON.stringify(req.body);
 
-        // 🔹 Log incoming data for debugging
-        console.log("🔹 Received Webhook Data:", payload);
+        if (!razorpaySignature) {
+            console.error("❌ Missing Razorpay signature");
+            return res.status(400).json({ message: "Missing Razorpay signature" });
+        }
+
+        const payload = req.body; // ✅ This will be a Buffer
+        console.log("🔹 Received Webhook Data:", payload.toString()); // Convert Buffer to string
         console.log("🔹 Received Signature:", razorpaySignature);
 
-        // ✅ Generate the expected signature
+        // ✅ Compute expected signature using raw Buffer
         const expectedSignature = crypto
-            .createHmac("sha256", webhookSecret)
-            .update(payload, "utf-8") // Ensure encoding
+            .createHmac("sha256", WEBHOOK_SECRET)
+            .update(payload) // ✅ Use raw Buffer directly
             .digest("hex");
 
         console.log("🔹 Expected Signature:", expectedSignature);
 
         if (expectedSignature !== razorpaySignature) {
-            console.error("❌ Invalid signature");
+            console.error("❌ Invalid signature! Possible security breach.");
             return res.status(400).json({ message: "Invalid signature" });
         }
 
-        console.log("✅ Webhook verified:", req.body.event);
-
-        if (req.body.event === "payment.captured") {
-            const paymentData = req.body.payload.payment.entity;
-            const razorpayPaymentId = paymentData.id;
-            const razorpayOrderId = paymentData.order_id;
-
-            // ✅ Find the appointment in DB
-            const appointment = await AppointmentRecordsSchema.findOne({
-                razorpay_order_id: razorpayOrderId,
-            });
-
-            if (!appointment) {
-                console.error("❌ Appointment not found for this payment.");
-                return res.status(404).json({ message: "Appointment not found for this payment." });
-            }
-
-            // ✅ Update payment status in DB
-            appointment.payment_status = "paid";
-            appointment.payment_id = razorpayPaymentId;
-            await appointment.save();
-
-            console.log(`✅ Payment verified for Appointment ID: ${appointment._id}`);
-
-            return res.status(200).json({ message: "Payment verified and appointment confirmed." });
-        }
-
-        return res.status(400).json({ message: "Unhandled event type." });
+        console.log("✅ Webhook verified successfully!");
+        return res.status(200).json({ message: "Webhook processed successfully." });
 
     } catch (error) {
-        console.error("❌ Webhook Error:", error);
+        console.error("❌ Webhook Processing Error:", error);
         return res.status(500).json({ message: "Webhook processing failed.", error: error.message });
     }
 });
 
+// ✅ Export the router
 module.exports = PaymentRoute;

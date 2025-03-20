@@ -257,5 +257,96 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
     }
 });
 
+AppointmentRoute.post("/verify-payment", async (req, res) => {
+    try {
+        const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = req.body;
+
+        if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
+            return res.status(400).json({ message: "Missing payment details." });
+        }
+
+        // ✅ Step 1: Verify the payment signature
+        const generated_signature = crypto
+            .createHmac("sha256", "YOUR_RAZORPAY_SECRET")
+            .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+            .digest("hex");
+
+        if (generated_signature !== razorpay_signature) {
+            return res.status(400).json({ message: "Invalid payment signature." });
+        }
+
+        // ✅ Step 2: Find the appointment record using order_id
+        const appointment = await AppointmentRecordsSchema.findOne({ razorpay_order_id });
+
+        if (!appointment) {
+            return res.status(404).json({ message: "Appointment not found." });
+        }
+
+        // ✅ Step 3: Update appointment with payment details
+        appointment.payment_status = "paid";
+        appointment.payment_id = razorpay_payment_id;
+        await appointment.save();
+
+        return res.status(200).json({
+            message: "Payment verified successfully. Appointment confirmed!",
+            appointmentDetails: appointment,
+        });
+
+    } catch (error) {
+        console.error("Payment verification error:", error);
+        return res.status(500).json({ message: "Payment verification failed.", error: error.message });
+    }
+});
+
+AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
+    try {
+        const webhookSecret = "Agarwal@2019"; // Replace with your actual Razorpay webhook secret
+        const receivedSignature = req.headers["x-razorpay-signature"];
+        const body = JSON.stringify(req.body);
+
+        // Verify the webhook signature
+        const expectedSignature = crypto.createHmac("sha256", webhookSecret)
+            .update(body)
+            .digest("hex");
+
+        if (expectedSignature !== receivedSignature) {
+            console.error("❌ Invalid signature! Possible security breach.");
+            return res.status(400).json({ message: "Invalid signature" });
+        }
+
+        console.log("✅ Webhook signature verified");
+
+        const event = req.body;
+
+        if (event.event === "payment.captured") {
+            const paymentId = event.payload.payment.entity.id;
+            const orderId = event.payload.payment.entity.order_id;
+
+            console.log("🔹 Payment Captured for Order ID:", orderId);
+
+            // Find and update the appointment record
+            const appointment = await AppointmentRecordsSchema.findOneAndUpdate(
+                { razorpay_order_id: orderId },
+                { $set: { payment_status: "confirmed", payment_id: paymentId } },
+                { new: true }
+            );
+
+            if (!appointment) {
+                console.error("❌ No matching appointment found for Order ID:", orderId);
+                return res.status(404).json({ message: "Appointment not found" });
+            }
+
+            console.log("✅ Appointment Updated:", appointment);
+
+            return res.status(200).json({ message: "Payment verified and appointment confirmed." });
+        }
+
+        res.status(200).json({ message: "Webhook received but no action taken." });
+    } catch (error) {
+        console.error("❌ Webhook processing failed:", error);
+        res.status(500).json({ message: "Webhook processing failed.", error: error.message });
+    }
+});
+
 module.exports = AppointmentRoute;
 

@@ -268,8 +268,9 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
         const event = req.body;
 
         if (event.event === "payment.captured") {
-            const paymentId = event.payload.payment.entity.id;
-            const paymentLinkId = event.payload.payment.entity.notes.payment_link_id;
+            const paymentId = event.event.payload.payment.entity.id;
+            const paymentLinkId = event.event.payload.payment.entity.notes.payment_link_id;
+            
 
             console.log("🔹 Payment Captured for Payment Link ID:", paymentLinkId);
 

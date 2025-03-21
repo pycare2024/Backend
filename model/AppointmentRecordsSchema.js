@@ -12,6 +12,7 @@ const AppointmentRecordsSchema=new mongoose.Schema({
     "payment_status":{type:String},
     "payment_id":{type:String},
     "payment_link_id":{type:String},
+    "meeting_link":{type:String}
 },{
     collection:"AppointmentRecords"
 })

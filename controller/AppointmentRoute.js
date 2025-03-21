@@ -10,6 +10,7 @@ const DoctorsAssignmentPrioritySchema = require("../model/DoctorsAssignmentPrior
 const fetch = require("node-fetch");
 const patientSchema = require("../model/patientSchema");
 const doc = require("pdfkit");
+const {generateJitsiMeetingLink} = require("../JitsiHelper");
 
 const WATI_API_URL = "https://live-mt-server.wati.io/387357/api/v2/sendTemplateMessage";
 const WATI_API_KEY = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhZmY3OWIzZC0wY2FjLTRlMjEtOThmZC1hNTExNGQyYzBlOTEiLCJ1bmlxdWVfbmFtZSI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsIm5hbWVpZCI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsImVtYWlsIjoiY29udGFjdHVzQHBzeS1jYXJlLmluIiwiYXV0aF90aW1lIjoiMDEvMDEvMjAyNSAwNTo0NzoxOCIsInRlbmFudF9pZCI6IjM4NzM1NyIsImRiX25hbWUiOiJtdC1wcm9kLVRlbmFudHMiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBRE1JTklTVFJBVE9SIiwiZXhwIjoyNTM0MDIzMDA4MDAsImlzcyI6IkNsYXJlX0FJIiwiYXVkIjoiQ2xhcmVfQUkifQ.e4BgIPZN_WI1RU4VkLoyBAndhzW8uKntWnhr4K-J9K0"; // Replace with actual token
@@ -218,7 +219,8 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             WeekDay: selectedDoctor.WeekDay,
             payment_status: "pending",
             payment_id: null,
-            payment_link_id: null, // Will update after payment link creation
+            payment_link_id: null,// Will update after payment link creation
+            meeting_link: null 
         });
 
         const savedAppointment = await newAppointment.save();
@@ -339,10 +341,12 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
                 return res.status(400).json({ message: "No appointment ID found in payment notes." });
             }
 
+            const link = generateJitsiMeetingLink(); // Generating jitsi meeting link
+
             // ✅ Update Appointment Status to "confirmed"
             await AppointmentRecordsSchema.updateOne(
                 { _id: appointmentId },
-                { $set: { payment_status: "confirmed", payment_id: paymentData.id } }
+                { $set: { payment_status: "confirmed", payment_id: paymentData.id, meeting_link: link } }
             );
 
             const appointment = await AppointmentRecordsSchema.findById(new mongoose.Types.ObjectId(appointmentId));
@@ -366,7 +370,6 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
             const DoctorName = doctor.Name;
             const clinicName = "PsyCare";
             const payId = paymentData.id;
-            const link = "doxy (Soon to be rolled out)";
 
             if (patientPhoneNumber) {
                 const whatsappResponse = await fetch(`${WATI_API_URL}?whatsappNumber=91${patientPhoneNumber}`, {

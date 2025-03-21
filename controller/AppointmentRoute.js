@@ -3,11 +3,16 @@ const mongoose = require("mongoose");
 const crypto = require("crypto");
 const razorpay = require("../razorpay");
 const AppointmentRoute = express.Router();
+const DoctorSchema = require("../model/DoctorSchema");
 const DoctorScheduleSchema = require("../model/DoctorScheduleSchema");
 const AppointmentRecordsSchema = require("../model/AppointmentRecordsSchema");
 const DoctorsAssignmentPrioritySchema = require("../model/DoctorsAssignmentPrioritySchema"); // ✅ Import this!
-const axios = require("axios");
+const fetch = require("node-fetch");
+const patientSchema = require("../model/patientSchema");
+const doc = require("pdfkit");
 
+const WATI_API_URL = "https://live-mt-server.wati.io/387357/api/v2/sendTemplateMessage";
+const WATI_API_KEY = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhZmY3OWIzZC0wY2FjLTRlMjEtOThmZC1hNTExNGQyYzBlOTEiLCJ1bmlxdWVfbmFtZSI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsIm5hbWVpZCI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsImVtYWlsIjoiY29udGFjdHVzQHBzeS1jYXJlLmluIiwiYXV0aF90aW1lIjoiMDEvMDEvMjAyNSAwNTo0NzoxOCIsInRlbmFudF9pZCI6IjM4NzM1NyIsImRiX25hbWUiOiJtdC1wcm9kLVRlbmFudHMiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBRE1JTklTVFJBVE9SIiwiZXhwIjoyNTM0MDIzMDA4MDAsImlzcyI6IkNsYXJlX0FJIiwiYXVkIjoiQ2xhcmVfQUkifQ.e4BgIPZN_WI1RU4VkLoyBAndhzW8uKntWnhr4K-J9K0"; // Replace with actual token
 
 
 AppointmentRoute.get("/appointments", (req, res) => {
@@ -52,7 +57,7 @@ AppointmentRoute.get("/appointments/:patient_id", async (req, res) => {
         }
 
         let query = { patient_id };
-        
+
         if (date) {
             const selectedDate = new Date(date);
             if (isNaN(selectedDate)) {
@@ -163,9 +168,9 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
         // ✅ Find an available doctor (Round-robin selection)
         let lastAssignment = await DoctorsAssignmentPrioritySchema.findOne({ Date: appointmentDate });
 
-        const availableDoctors = await DoctorScheduleSchema.find({ 
-            Date: appointmentDate, 
-            SlotsAvailable: { $gt: 0 } 
+        const availableDoctors = await DoctorScheduleSchema.find({
+            Date: appointmentDate,
+            SlotsAvailable: { $gt: 0 }
         }).sort({ doctor_id: 1 });
 
         if (availableDoctors.length === 0) {
@@ -194,9 +199,20 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             );
         }
 
+        const patient = await patientSchema.findById(new mongoose.Types.ObjectId(patient_id));
+        if (!patient) {
+            console.error("Debug: Patient not found for ID:", patient_id);
+            return res.status(404).json({ message: "Patient not found." });
+        }
+
+        const patientPhoneNumber = patient.Mobile;
+        const patientName = patient.Name;
+
         // ✅ Step 1: Create an Appointment Record First
         const newAppointment = new AppointmentRecordsSchema({
             patient_id,
+            patientName: patientName,
+            patientPhoneNumber: patientPhoneNumber,
             doctor_id: selectedDoctor.doctor_id,
             DateOfAppointment: appointmentDate,
             WeekDay: selectedDoctor.WeekDay,
@@ -220,14 +236,18 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             reference_id: `appointment_${savedAppointment._id}`, // ✅ Use Appointment ID as Reference
             notes: {
                 appointment_id: savedAppointment._id.toString(), // ✅ Store the Appointment Record ID
-                patient_id: patient_id, 
+                patient_id: patient_id,
             }
         });
+
+        const paymentLink = paymentLinkResponse.short_url; // ✅ Payment link
+        const paymentLinkId = paymentLinkResponse.id; // ✅ Extract Razorpay Payment Link ID
+        const uniquePaymentCode = paymentLink.split("/").pop(); // ✅ Extract unique part of link
 
         // ✅ Step 3: Update Appointment Record with Payment Link ID
         await AppointmentRecordsSchema.updateOne(
             { _id: savedAppointment._id },
-            { $set: { payment_link_id: paymentLinkResponse.id } }
+            { $set: { payment_link_id: paymentLinkId } }
         );
 
         // ✅ Step 4: Reduce Available Slots for the Selected Doctor
@@ -236,13 +256,43 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             { $inc: { SlotsAvailable: -1 } }
         );
 
+        // ✅ Step 5: Send Payment Link via WhatsApp using WATI API
+        if (patientPhoneNumber) {
+            const whatsappResponse = await fetch(`${WATI_API_URL}?whatsappNumber=91${patientPhoneNumber}`, {
+                method: "POST",
+                headers: {
+                    "Authorization": WATI_API_KEY,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    template_name: "payment_link",
+                    broadcast_name: "PaymentLinkBroadcast",
+                    parameters: [
+                        {
+                            name: "1",
+                            value: patientName  // ✅ Patient's name for {{1}}
+                        },
+                        {
+                            name: "2",
+                            value: uniquePaymentCode  // ✅ Unique payment link or ID for {{2}}
+                        }
+                    ]
+                })
+            });
+
+            const whatsappData = await whatsappResponse.json();
+            if (!whatsappResponse.ok) {
+                console.error("Failed to send WhatsApp message:", whatsappData);
+            }
+        }
+
         // ✅ Step 5: Return Payment Link to Chatbot
         return res.status(200).json({
             message: "Appointment booked pending payment.",
             doctorId: selectedDoctor.doctor_id,
             remainingSlots: selectedDoctor.SlotsAvailable - 1,
             appointmentDetails: savedAppointment,
-            paymentLink: paymentLinkResponse.short_url, // ✅ Correct Payment Link
+            paymentLink: paymentLink, // ✅ Correct Payment Link
         });
 
     } catch (error) {
@@ -265,8 +315,8 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
             .update(body)
             .digest("hex");
 
-        console.log("Recieved Sign",receivedSignature);    
-        console.log("Expected Signature",expectedSignature);    
+        console.log("Recieved Sign", receivedSignature);
+        console.log("Expected Signature", expectedSignature);
 
         if (expectedSignature !== receivedSignature) {
             console.error("❌ Invalid signature! Possible security breach.");
@@ -275,14 +325,14 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
 
         console.log("✅ Webhook signature verified");
 
-        const {event , payload } = req.body;
+        const { event, payload } = req.body;
 
         console.log("Received Payload:", payload);
 
         if (event === "payment.captured") {
             const paymentData = payload.payment.entity;
             const appointmentId = paymentData.notes.appointment_id;
-            
+
             console.log("🔹 Payment Captured for AppointmentID", appointmentId);
 
             if (!appointmentId) {
@@ -294,6 +344,78 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
                 { _id: appointmentId },
                 { $set: { payment_status: "confirmed", payment_id: paymentData.id } }
             );
+
+            const appointment = await AppointmentRecordsSchema.findById(new mongoose.Types.ObjectId(appointmentId));
+            if (!appointment) {
+                console.error("Appointment not found for Appointment Id:", appointmentId);
+                return res.status(404).json({ message: "Patient not found." });
+            }
+
+            const doctor = await DoctorSchema.findById(new mongoose.Types.ObjectId(appointment.doctor_id));
+
+            if(!doctor)
+                {
+                    console.error("Doctor not found with doctor id->",appointment.doctor_id);
+                    return res.status(404).json({ message: "Doctor not found." });
+                }
+
+            const patientPhoneNumber = appointment.patientPhoneNumber;
+            const patientName = appointment.patientName;
+            const DofAppt = appointment.DateOfAppointment;
+            const apptTime = "soon to rolled out";
+            const DoctorName = doctor.Name;
+            const clinicName = "PsyCare";
+            const payId = paymentData.id;
+            const link = "doxy (Soon to be rolled out)";
+
+            if (patientPhoneNumber) {
+                const whatsappResponse = await fetch(`${WATI_API_URL}?whatsappNumber=91${patientPhoneNumber}`, {
+                    method: "POST",
+                    headers: {
+                        "Authorization": WATI_API_KEY,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        template_name: "appointment_details",
+                        broadcast_name: "appointmentDetailBroadcast",
+                        parameters: [
+                            {
+                                name: "name",
+                                value: patientName  // ✅ Patient's name for {{1}}
+                            },
+                            {
+                                name: "appointment_date",
+                                value: DofAppt  // ✅ Unique payment link or ID for {{2}}
+                            },
+                            {
+                                name: "appointment_time",
+                                value: apptTime  // ✅ Patient's name for {{1}}
+                            },
+                            {
+                                name: "doctor_name",
+                                value: DoctorName  // ✅ Unique payment link or ID for {{2}}
+                            },
+                            {
+                                name: "clinic_name",
+                                value: clinicName // ✅ Patient's name for {{1}}
+                            },
+                            {
+                                name: "payment_id",
+                                value: payId  // ✅ Unique payment link or ID for {{2}}
+                            },
+                            {
+                                name: "link",
+                                value: link
+                            }
+                        ]
+                    })
+                });
+
+                const whatsappData = await whatsappResponse.json();
+                if (!whatsappResponse.ok) {
+                    console.error("Failed to send WhatsApp message:", whatsappData);
+                }
+            }
 
             return res.status(200).json({ message: "Payment verified and appointment confirmed." });
         }

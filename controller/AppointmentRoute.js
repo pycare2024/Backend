@@ -25,6 +25,37 @@ AppointmentRoute.get("/appointments", (req, res) => {
     });
 });
 
+AppointmentRoute.get("/doctor-appointments", async (req, res) => {
+    try {
+        const { doctor_id, date } = req.query;
+
+        if (!doctor_id) {
+            return res.status(400).json({ message: "Doctor ID is required." });
+        }
+
+        let filter = { doctor_id };
+
+        if (date) {
+            const selectedDate = new Date(date);
+            selectedDate.setHours(0, 0, 0, 0); // Normalize to start of the day
+
+            const nextDay = new Date(selectedDate);
+            nextDay.setDate(nextDay.getDate() + 1);
+
+            filter.DateOfAppointment = { $gte: selectedDate, $lt: nextDay };
+        }
+
+        const appointments = await AppointmentRecordsSchema.find(filter)
+            .sort({ DateOfAppointment: 1 }) // Sort by date
+            .lean();
+
+        res.status(200).json({ success: true, appointments });
+    } catch (error) {
+        console.error("Error fetching appointments:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+});
+
 // Route to get an appointment by appointment_id
 AppointmentRoute.get("/appointment/:appointment_id", async (req, res) => {
     try {

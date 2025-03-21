@@ -42,7 +42,7 @@ DoctorRoute.post("/doctorlogin", async (req, res) => {
                 return res.json({
                     message: "Login successful",
                     success: true,
-                    doctor: { name: doctor.Name, id: doctor.id }
+                    doctor: { name: doctor.Name, id: doctor.id , doctor_id: doctor._id }
                 });
             } else {
                 return res.status(401).json({ message: "Invalid loginId or password", success: false });

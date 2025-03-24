@@ -439,7 +439,7 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
                             },
                             {
                                 name: "link",
-                                value: link
+                                value: "Your consultation is scheduled. The meeting link will be sent to you once the doctor starts the session. ⏳ Please wait for further updates. Thank you for your patience! 😊"
                             }
                         ]
                     })
@@ -460,6 +460,77 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
         res.status(500).json({ message: "Webhook processing failed.", error: error.message });
     }
 });
+
+AppointmentRoute.post("/startSession/:appointmentId", async (req, res) => {
+    try {
+        const { appointmentId } = req.params;
+
+        // Update sessionStarted status in the database
+        const appointment = await AppointmentRecordsSchema.findByIdAndUpdate(
+            appointmentId,
+            { session_started: true },
+            { new: true }
+        );
+
+        const patientName = appointment.patientName;
+        const patientPhoneNumber = appointment.patientPhoneNumber;
+        const meet_link = appointment.meeting_link;
+        const doctor_id = appointment.doctor_id;
+
+        const doctor = await DoctorSchema.findById(new mongoose.Types.ObjectId(doctor_id));
+
+            if(!doctor)
+                {
+                    console.error("Doctor not found with doctor id->",doctor_id);
+                    return res.status(404).json({ message: "Doctor not found." });
+                }
+
+        const doctor_name = doctor.Name;       
+
+        if (patientPhoneNumber) {
+            const whatsappResponse = await fetch(`${WATI_API_URL}?whatsappNumber=91${patientPhoneNumber}`, {
+                method: "POST",
+                headers: {
+                    "Authorization": WATI_API_KEY,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    template_name: "meeting_link",
+                    broadcast_name: "providing_meeting_link",
+                    parameters: [
+                        {
+                            name: "patient_name",
+                            value: patientName  // ✅ Patient's name for {{1}}
+                        },
+                        {
+                            name: "doctor_name",
+                            value: doctor_name // ✅ Unique payment link or ID for {{2}}
+                        },
+                        {
+                            name: "meet_link",
+                            value: meet_link  // ✅ Patient's name for {{1}}
+                        }
+                    ]
+                })
+            });
+
+            const whatsappData = await whatsappResponse.json();
+            if (!whatsappResponse.ok) {
+                console.error("Failed to send WhatsApp message:", whatsappData);
+            }
+        }
+
+        if (!appointment) {
+            return res.status(404).json({ message: "Appointment not found" });
+        }
+
+        res.status(200).json({ message: "Session started successfully", appointment });
+    } catch (error) {
+        console.error("Error starting session:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
 
 module.exports = AppointmentRoute;
 

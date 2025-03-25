@@ -81,56 +81,58 @@ DoctorScheduleRoute.post("/addSchedule", async (req, res) => {
     }
 });
 
-// Route to modify an existing doctor schedule
+// Route to modify an existing doctor schedule, including slots
 DoctorScheduleRoute.put("/updateSchedule/:id", async (req, res) => {
     const { id } = req.params;
-    const { date, slotsAvailable, weekDay } = req.body;
+    const { date, weekDay, slots } = req.body; // Make sure 'slots' is lowercase
 
     try {
-        // Validate input
-        if (!date && !slotsAvailable && !weekDay) {
-            return res.status(400).json({
-                message: "At least one field (date, slots available, or weekday) must be provided for update."
-            });
+        const schedule = await DoctorScheduleSchema.findById(id);
+        if (!schedule) {
+            return res.status(404).json({ message: "Doctor schedule not found." });
         }
 
-        // Parse and validate the date
-        let updatedFields = {};
         if (date) {
             const parsedDate = new Date(date);
             if (isNaN(parsedDate)) {
                 return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD." });
             }
-            updatedFields.Date = new Date(parsedDate.setUTCHours(0, 0, 0, 0));
+            schedule.Date = new Date(parsedDate.setUTCHours(0, 0, 0, 0));
         }
-        if (slotsAvailable !== undefined) updatedFields.SlotsAvailable = slotsAvailable;
-        if (weekDay) updatedFields.WeekDay = weekDay;
 
-        // Find and update the schedule
-        const updatedSchedule = await DoctorScheduleSchema.findByIdAndUpdate(
-            id,
-            { $set: updatedFields },
-            { new: true } // Return updated document
-        );
+        if (weekDay) schedule.WeekDay = weekDay;
 
-        if (!updatedSchedule) {
-            return res.status(404).json({ message: "Doctor schedule not found." });
+        // Update only non-booked slots
+        if (slots && Array.isArray(slots)) {
+            schedule.Slots = schedule.Slots.map(existingSlot => {
+                if (!existingSlot.isBooked) {
+                    const updatedSlot = slots.find(s => s._id.toString() === existingSlot._id.toString());
+                    if (updatedSlot) {
+                        existingSlot.startTime = updatedSlot.startTime;
+                        existingSlot.endTime = updatedSlot.endTime;
+                    }
+                }
+                return existingSlot;
+            });
         }
+
+        // Recalculate SlotsAvailable
+        schedule.SlotsAvailable = schedule.Slots.filter(slot => !slot.isBooked).length;
+
+        // Save changes
+        const updatedSchedule = await schedule.save();
 
         res.status(200).json({
             message: "Doctor schedule updated successfully.",
-            data: updatedSchedule,
+            data: updatedSchedule
         });
+
     } catch (error) {
         console.error("Error updating doctor schedule:", error);
-        res.status(500).json({
-            message: "Error updating doctor schedule.",
-            error: error.message,
-        });
+        res.status(500).json({ message: "Error updating doctor schedule.", error: error.message });
     }
 });
 
-// Route to fetch schedules for a specific doctor and date
 DoctorScheduleRoute.get("/doctorSchedules/:doctor_id/:date", async (req, res) => {
     const { doctor_id, date } = req.params;
     try {
@@ -138,14 +140,24 @@ DoctorScheduleRoute.get("/doctorSchedules/:doctor_id/:date", async (req, res) =>
         if (isNaN(parsedDate)) {
             return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD." });
         }
+
         const schedule = await DoctorScheduleSchema.findOne({
             doctor_id,
             Date: new Date(parsedDate.setUTCHours(0, 0, 0, 0)),
         });
+
         if (!schedule) {
-            return res.status(404).json({ message: "No schedule found for this doctor on the selected date." });
+            return res.status(404).json({
+                message: "No schedule found for this doctor on the selected date.",
+                slots: [] // Ensure slots is always an array
+            });
         }
-        res.status(200).json({ message: "Schedule fetched successfully.", data: schedule });
+
+        res.status(200).json({
+            message: "Doctor schedules retrieved successfully.",
+            scheduleId: schedule._id,
+            slots: schedule.Slots || [] // Ensure slots is an array
+        });
     } catch (error) {
         console.error("Error fetching schedule:", error);
         res.status(500).json({ message: "Error fetching schedule.", error: error.message });

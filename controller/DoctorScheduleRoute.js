@@ -23,14 +23,15 @@ DoctorScheduleRoute.get("/doctorSchedules", async (req, res) => {
 });
 
 // Route to create a doctor schedule or return message if already exists
+// Route to create a doctor schedule or return a message if already exists
 DoctorScheduleRoute.post("/addSchedule", async (req, res) => {
-    const { doctor_id, date, slotsAvailable, weekDay } = req.body;
+    const { doctor_id, date, weekDay, slots } = req.body;
 
     try {
         // Validate input
-        if (!doctor_id || !date || !slotsAvailable || !weekDay) {
+        if (!doctor_id || !date || !weekDay || !slots || !Array.isArray(slots) || slots.length === 0) {
             return res.status(400).json({
-                message: "Doctor ID, date, slots available, and weekday are required.",
+                message: "Doctor ID, date, weekday, and slots array are required.",
             });
         }
 
@@ -43,25 +44,26 @@ DoctorScheduleRoute.post("/addSchedule", async (req, res) => {
         // Ensure the date is at UTC midnight (start of the day)
         const appointmentDate = new Date(parsedDate.setUTCHours(0, 0, 0, 0));
 
-        // Check if a schedule already exists for the doctor on the same date and weekday
+        // Check if a schedule already exists for the doctor on the same date
         const existingSchedule = await DoctorScheduleSchema.findOne({
             doctor_id,
-            Date: appointmentDate,  // Use 'Date' as defined in the schema
-            WeekDay: weekDay,       // Use 'WeekDay' as defined in the schema
+            Date: appointmentDate,
+            WeekDay: weekDay,
         });
 
         if (existingSchedule) {
             return res.status(400).json({
-                message: "Schedule already exists for this doctor on the selected day.",
+                message: "Schedule already exists for this doctor on the selected date.",
             });
         }
 
         // Create a new schedule for the doctor
         const newSchedule = new DoctorScheduleSchema({
             doctor_id,
-            Date: appointmentDate,       // Use 'Date' as defined in the schema
-            SlotsAvailable: slotsAvailable,
-            WeekDay: weekDay,            // Use 'WeekDay' as defined in the schema
+            Date: appointmentDate,
+            WeekDay: weekDay,
+            SlotsAvailable: slots.length, // Total number of slots
+            Slots: slots, // Store the slots array
         });
 
         await newSchedule.save();

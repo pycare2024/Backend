@@ -169,7 +169,7 @@ AppointmentRoute.get('/availableDates', async (req, res) => {
 
 AppointmentRoute.post("/bookAppointment", async (req, res) => {
     try {
-        const { selectedDate, patient_id } = req.body;
+        const { selectedDate, patient_id, selectedSlot } = req.body;
 
         if (!selectedDate || !patient_id) {
             return res.status(400).json({ message: "All fields are required." });
@@ -202,7 +202,10 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
 
         const availableDoctors = await DoctorScheduleSchema.find({
             Date: appointmentDate,
-            SlotsAvailable: { $gt: 0 }
+            SlotsAvailable: { $gt: 0 },
+            "Slots.isBooked":false,
+            "Slots.startTime":selectedSlot.startTime,
+            "Slots.endTime":selectedSlot.endTime
         }).sort({ doctor_id: 1 });
 
         if (availableDoctors.length === 0) {
@@ -247,6 +250,8 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             patientPhoneNumber: patientPhoneNumber,
             doctor_id: selectedDoctor.doctor_id,
             DateOfAppointment: appointmentDate,
+            AppStartTime: selectedSlot.startTime,
+            AppEndTime: selectedSlot.endTime,
             WeekDay: selectedDoctor.WeekDay,
             payment_status: "pending",
             payment_id: null,
@@ -283,11 +288,22 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             { $set: { payment_link_id: paymentLinkId } }
         );
 
-        // ✅ Step 4: Reduce Available Slots for the Selected Doctor
-        await DoctorScheduleSchema.updateOne(
-            { _id: selectedDoctor._id },
-            { $inc: { SlotsAvailable: -1 } }
-        );
+        // // ✅ Step 4: Reduce Available Slots for the Selected Doctor
+        // await DoctorScheduleSchema.updateOne(
+        //     { _id: selectedDoctor._id, 
+        //        "Slots.startTime":selectedSlot.startTime,
+        //        "Slots.isBooked":false 
+        //     },
+        //     {
+        //         $set:
+        //         {
+        //             "Slots.$.isBooked":true,
+        //             "Slots.$.bookedBy":patient_id
+        //         },
+        //         $inc: { SlotsAvailable: -1 }
+        //     },
+            
+        // );
 
         // ✅ Step 5: Send Payment Link via WhatsApp using WATI API
         if (patientPhoneNumber) {
@@ -383,8 +399,24 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
             const appointment = await AppointmentRecordsSchema.findById(new mongoose.Types.ObjectId(appointmentId));
             if (!appointment) {
                 console.error("Appointment not found for Appointment Id:", appointmentId);
-                return res.status(404).json({ message: "Patient not found." });
+                return res.status(404).json({ message: "Appointment not found." });
             }
+
+            await DoctorScheduleSchema.updateOne(
+                { _id: appointment.doctor_id, 
+                   "Slots.startTime":appointment.AppStartTime,
+                   "Slots.isBooked":false 
+                },
+                {
+                    $set:
+                    {
+                        "Slots.$.isBooked":true,
+                        "Slots.$.bookedBy":appointment.patient_id
+                    },
+                    $inc: { SlotsAvailable: -1 }
+                },
+                
+            );
 
             const doctor = await DoctorSchema.findById(new mongoose.Types.ObjectId(appointment.doctor_id));
 
@@ -397,7 +429,7 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
             const patientPhoneNumber = appointment.patientPhoneNumber;
             const patientName = appointment.patientName;
             const DofAppt = appointment.DateOfAppointment;
-            const apptTime = "soon to rolled out";
+            const apptTime = appointment.AppStartTime;
             const DoctorName = doctor.Name;
             const clinicName = "PsyCare";
             const payId = paymentData.id;

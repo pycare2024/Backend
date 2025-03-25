@@ -7,6 +7,7 @@ const AppointmentRecordsSchema=new mongoose.Schema({
     "patientName":{type:String},
     "patientPhoneNumber":{type:Number},
     "doctor_id":{type:ObjectId},
+    "doctorScheduleId":{type:ObjectId},
     "DateOfAppointment":{type:Date},
     "AppStartTime":{type:String},
     "AppEndTime":{type:String},

@@ -248,6 +248,7 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             patient_id,
             patientName: patientName,
             patientPhoneNumber: patientPhoneNumber,
+            doctorScheduleId: selectedDoctor._id,
             doctor_id: selectedDoctor.doctor_id,
             DateOfAppointment: appointmentDate,
             AppStartTime: selectedSlot.startTime,
@@ -403,7 +404,7 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
             }
 
             await DoctorScheduleSchema.updateOne(
-                { _id: appointment.doctor_id, 
+                { _id: appointment.doctorScheduleId, 
                    "Slots.startTime":appointment.AppStartTime,
                    "Slots.isBooked":false 
                 },

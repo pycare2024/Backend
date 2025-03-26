@@ -149,14 +149,23 @@ DoctorScheduleRoute.get("/doctorSchedules/:doctor_id/:date", async (req, res) =>
         if (!schedule) {
             return res.status(404).json({
                 message: "No schedule found for this doctor on the selected date.",
-                slots: [] // Ensure slots is always an array
+                slots: []
+            });
+        }
+
+        // Check if slots are empty and return appropriate message
+        if (!schedule.Slots || schedule.Slots.length === 0) {
+            return res.status(200).json({
+                message: "Schedule found, but no slots available.",
+                scheduleId: schedule._id,
+                slots: []
             });
         }
 
         res.status(200).json({
             message: "Doctor schedules retrieved successfully.",
             scheduleId: schedule._id,
-            slots: schedule.Slots || [] // Ensure slots is an array
+            slots: schedule.Slots // Return slots if available
         });
     } catch (error) {
         console.error("Error fetching schedule:", error);
@@ -164,18 +173,37 @@ DoctorScheduleRoute.get("/doctorSchedules/:doctor_id/:date", async (req, res) =>
     }
 });
 
-// Route to delete a doctor schedule
-DoctorScheduleRoute.delete("/deleteSchedule/:id", async (req, res) => {
-    const { id } = req.params;
+DoctorScheduleRoute.delete("/deleteSlot/:scheduleId/:slotId", async (req, res) => {
+    const { scheduleId, slotId } = req.params;
+
     try {
-        const deletedSchedule = await DoctorScheduleSchema.findByIdAndDelete(id);
-        if (!deletedSchedule) {
-            return res.status(404).json({ message: "Schedule not found." });
+        // Fetch the schedule before updating
+        const schedule = await DoctorScheduleSchema.findById(scheduleId);
+        if (!schedule) return res.status(404).json({ message: "Schedule not found" });
+
+        // Ensure slot exists before attempting deletion
+        const slotExists = schedule.Slots.some(slot => slot._id.toString() === slotId);
+        if (!slotExists) return res.status(404).json({ message: "Slot not found." });
+
+        // Remove the slot
+        const updatedSchedule = await DoctorScheduleSchema.findOneAndUpdate(
+            { _id: scheduleId },
+            { $pull: { Slots: { _id: slotId } } },
+            { new: true }
+        );
+
+        if (!updatedSchedule) {
+            return res.status(500).json({ message: "Slot deletion failed." });
         }
-        res.status(200).json({ message: "Schedule deleted successfully." });
+
+        // Recalculate SlotsAvailable based on updated Slots length
+        updatedSchedule.SlotsAvailable = updatedSchedule.Slots.length;
+        await updatedSchedule.save(); // Save the updated count
+
+        res.status(200).json({ message: "Slot deleted successfully.", updatedSchedule });
     } catch (error) {
-        console.error("Error deleting schedule:", error);
-        res.status(500).json({ message: "Error deleting schedule.", error: error.message });
+        console.error("Error deleting slot:", error);
+        res.status(500).json({ message: "Error deleting slot.", error: error.message });
     }
 });
 

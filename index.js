@@ -15,6 +15,7 @@ const CredentialsRoute = require("./controller/CredentialsRoute");
 const NewScreeningTestRoute = require("./controller/NewScreeningTestRoute");
 const dotenv = require("dotenv");
 const PaymentRoute = require("./controller/PaymentRoute");
+const OperatorRoute = require("./controller/OperatorRoute");
 
 
 dotenv.config();
@@ -45,6 +46,7 @@ app.use("/CredentialsRoute",CredentialsRoute);
 app.use("/NewScreeningTestRoute",NewScreeningTestRoute);
 app.use("/GeminiRoute",GeminiRoute);
 app.use("/PaymentRoute",PaymentRoute);
+app.use("/OperatorRoute",OperatorRoute);
 
 app.listen(4000,()=>{
     console.log("Server started at 4000");

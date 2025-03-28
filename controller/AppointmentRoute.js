@@ -169,9 +169,9 @@ AppointmentRoute.get('/availableDates', async (req, res) => {
 
 AppointmentRoute.post("/bookAppointment", async (req, res) => {
     try {
-        const { selectedDate, patient_id, selectedSlot } = req.body;
+        const { selectedDate, patient_id, preferredTime } = req.body;
 
-        if (!selectedDate || !patient_id) {
+        if (!selectedDate || !patient_id || !preferredTime) {
             return res.status(400).json({ message: "All fields are required." });
         }
 
@@ -197,36 +197,70 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             });
         }
 
-        // ✅ Find an available doctor (Round-robin selection)
+        // ✅ Define time ranges for filtering
+        let timeFilter = {};
+        if (preferredTime === "morning") {
+            timeFilter = { "Slots.startTime": { $gte: "09:00", $lt: "12:00" } };
+        } else if (preferredTime === "afternoon") {
+            timeFilter = { "Slots.startTime": { $gte: "12:00", $lt: "16:00" } };
+        } else if (preferredTime === "evening") {
+            timeFilter = { "Slots.startTime": { $gte: "16:00", $lt: "19:00" } };
+        } else {
+            return res.status(400).json({ message: "Invalid preferredTime. Use morning, afternoon, or evening." });
+        }
+
+        // ✅ Find doctors with available slots in the selected time range
         let lastAssignment = await DoctorsAssignmentPrioritySchema.findOne({ Date: appointmentDate });
 
         const availableDoctors = await DoctorScheduleSchema.find({
             Date: appointmentDate,
             SlotsAvailable: { $gt: 0 },
-            "Slots.isBooked":false,
-            "Slots.startTime":selectedSlot.startTime,
-            "Slots.endTime":selectedSlot.endTime
+            "Slots.isBooked": false,
+            ...timeFilter // ✅ Apply time filter
         }).sort({ doctor_id: 1 });
 
         if (availableDoctors.length === 0) {
             return res.status(404).json({
-                message: "No doctors available on the selected date. Please choose another date.",
+                message: `No doctors available in the ${preferredTime} on the selected date.`,
                 selectedDate: appointmentDate,
             });
         }
 
+        // ✅ Find the earliest available slot across all doctors
+        let earliestSlotTime = null;
+        availableDoctors.forEach(doc => {
+            const firstAvailableSlot = doc.Slots.find(slot => !slot.isBooked);
+            if (firstAvailableSlot && (!earliestSlotTime || firstAvailableSlot.startTime < earliestSlotTime)) {
+                earliestSlotTime = firstAvailableSlot.startTime;
+            }
+        });
+
+        if (!earliestSlotTime) {
+            return res.status(500).json({ message: "Unexpected error: No available slots found." });
+        }
+
+        // ✅ Filter doctors who have the **same earliest slot**
+        const doctorsWithEarliestSlot = availableDoctors.filter(doc =>
+            doc.Slots.some(slot => !slot.isBooked && slot.startTime === earliestSlotTime)
+        );
+
+        if (doctorsWithEarliestSlot.length === 0) {
+            return res.status(500).json({ message: "Unexpected error: No doctor found for the earliest slot." });
+        }
+
+        // ✅ Apply **Round-Robin selection** among these doctors
         let selectedDoctor;
         if (!lastAssignment) {
-            selectedDoctor = availableDoctors[0];
+            selectedDoctor = doctorsWithEarliestSlot[0];
             await DoctorsAssignmentPrioritySchema.create({
                 Date: appointmentDate,
                 LastDoctorAssigned: selectedDoctor.doctor_id
             });
         } else {
-            const lastAssignedDoctorIndex = availableDoctors.findIndex(doc => doc.doctor_id.toString() === lastAssignment.LastDoctorAssigned.toString());
-            selectedDoctor = (lastAssignedDoctorIndex === -1 || lastAssignedDoctorIndex === availableDoctors.length - 1)
-                ? availableDoctors[0]
-                : availableDoctors[lastAssignedDoctorIndex + 1];
+            const lastAssignedDoctorIndex = doctorsWithEarliestSlot.findIndex(doc => doc.doctor_id.toString() === lastAssignment.LastDoctorAssigned.toString());
+            selectedDoctor = (lastAssignedDoctorIndex === -1 || lastAssignedDoctorIndex === doctorsWithEarliestSlot.length - 1)
+                ? doctorsWithEarliestSlot[0]
+                : doctorsWithEarliestSlot[lastAssignedDoctorIndex + 1];
 
             await DoctorsAssignmentPrioritySchema.updateOne(
                 { Date: appointmentDate },
@@ -234,79 +268,66 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             );
         }
 
+        // ✅ Get the **earliest slot** for the selected doctor
+        const earliestSlot = selectedDoctor.Slots.find(slot => !slot.isBooked && slot.startTime === earliestSlotTime);
+        if (!earliestSlot) {
+            return res.status(500).json({ message: "Unexpected error: No available slot found for the selected doctor." });
+        }
+
+        // // ✅ Mark the slot as booked
+        // earliestSlot.isBooked = true;
+        // earliestSlot.bookedBy = patient_id;
+        // await selectedDoctor.save();
+
         const patient = await patientSchema.findById(new mongoose.Types.ObjectId(patient_id));
         if (!patient) {
-            console.error("Debug: Patient not found for ID:", patient_id);
             return res.status(404).json({ message: "Patient not found." });
         }
 
         const patientPhoneNumber = patient.Mobile;
         const patientName = patient.Name;
 
-        // ✅ Step 1: Create an Appointment Record First
+        // ✅ Create an Appointment Record
         const newAppointment = new AppointmentRecordsSchema({
             patient_id,
-            patientName: patientName,
-            patientPhoneNumber: patientPhoneNumber,
+            patientName,
+            patientPhoneNumber,
             doctorScheduleId: selectedDoctor._id,
             doctor_id: selectedDoctor.doctor_id,
             DateOfAppointment: appointmentDate,
-            AppStartTime: selectedSlot.startTime,
-            AppEndTime: selectedSlot.endTime,
+            AppStartTime: earliestSlot.startTime,
+            AppEndTime: earliestSlot.endTime,
             WeekDay: selectedDoctor.WeekDay,
             payment_status: "pending",
             payment_id: null,
-            payment_link_id: null,// Will update after payment link creation
+            payment_link_id: null,
             meeting_link: null 
         });
 
         const savedAppointment = await newAppointment.save();
 
-        // ✅ Step 2: Generate a Razorpay Payment Link
+        // ✅ Generate a Razorpay Payment Link
         const paymentLinkResponse = await razorpay.paymentLink.create({
-            amount: 100, // ₹100 converted to paise
+            amount: 100, 
             currency: "INR",
             accept_partial: false,
             description: "Appointment Booking Fee",
-            notify: {
-                sms: true,
-                email: false,
-            },
-            reference_id: `appointment_${savedAppointment._id}`, // ✅ Use Appointment ID as Reference
-            notes: {
-                appointment_id: savedAppointment._id.toString(), // ✅ Store the Appointment Record ID
-                patient_id: patient_id,
-            }
+            notify: { sms: true, email: false },
+            reference_id: `appointment_${savedAppointment._id}`,
+            notes: { appointment_id: savedAppointment._id.toString(), patient_id }
         });
 
-        const paymentLink = paymentLinkResponse.short_url; // ✅ Payment link
-        const paymentLinkId = paymentLinkResponse.id; // ✅ Extract Razorpay Payment Link ID
-        const uniquePaymentCode = paymentLink.split("/").pop(); // ✅ Extract unique part of link
+        const paymentLink = paymentLinkResponse.short_url;
+        const paymentLinkId = paymentLinkResponse.id;
+        const uniquePaymentCode = paymentLink.split("/").pop();
 
-        // ✅ Step 3: Update Appointment Record with Payment Link ID
+        // ✅ Update Appointment Record with Payment Link
         await AppointmentRecordsSchema.updateOne(
             { _id: savedAppointment._id },
             { $set: { payment_link_id: paymentLinkId } }
         );
 
-        // // ✅ Step 4: Reduce Available Slots for the Selected Doctor
-        // await DoctorScheduleSchema.updateOne(
-        //     { _id: selectedDoctor._id, 
-        //        "Slots.startTime":selectedSlot.startTime,
-        //        "Slots.isBooked":false 
-        //     },
-        //     {
-        //         $set:
-        //         {
-        //             "Slots.$.isBooked":true,
-        //             "Slots.$.bookedBy":patient_id
-        //         },
-        //         $inc: { SlotsAvailable: -1 }
-        //     },
-            
-        // );
-
-        // ✅ Step 5: Send Payment Link via WhatsApp using WATI API
+        // ✅ Send Payment Link via WhatsApp
         if (patientPhoneNumber) {
             const whatsappResponse = await fetch(`${WATI_API_URL}?whatsappNumber=91${patientPhoneNumber}`, {
                 method: "POST",
@@ -318,14 +339,8 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
                     template_name: "payment_link",
                     broadcast_name: "PaymentLinkBroadcast",
                     parameters: [
-                        {
-                            name: "1",
-                            value: patientName  // ✅ Patient's name for {{1}}
-                        },
-                        {
-                            name: "2",
-                            value: uniquePaymentCode  // ✅ Unique payment link or ID for {{2}}
-                        }
+                        { name: "1", value: patientName },
+                        { name: "2", value: uniquePaymentCode }
                     ]
                 })
             });
@@ -336,13 +351,12 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             }
         }
 
-        // ✅ Step 5: Return Payment Link to Chatbot
         return res.status(200).json({
-            message: "Appointment booked pending payment.",
+            message: `Appointment booked pending payment.`,
             doctorId: selectedDoctor.doctor_id,
             remainingSlots: selectedDoctor.SlotsAvailable - 1,
             appointmentDetails: savedAppointment,
-            paymentLink: paymentLink, // ✅ Correct Payment Link
+            paymentLink,
         });
 
     } catch (error) {

@@ -274,11 +274,6 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             return res.status(500).json({ message: "Unexpected error: No available slot found for the selected doctor." });
         }
 
-        // // ✅ Mark the slot as booked
-        // earliestSlot.isBooked = true;
-        // earliestSlot.bookedBy = patient_id;
-        // await selectedDoctor.save();
-
         const patient = await patientSchema.findById(new mongoose.Types.ObjectId(patient_id));
         if (!patient) {
             return res.status(404).json({ message: "Patient not found." });
@@ -351,9 +346,17 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             }
         }
 
+        const doctor = await DoctorSchema.findById(new mongoose.Types.ObjectId(selectedDoctor.doctor_id));
+
+        if(!doctor)
+            {
+                    console.error("Doctor not found with doctor id->",selectedDoctor.doctor_id);
+                    return res.status(404).json({ message: "Doctor not found." });
+            }
+
         return res.status(200).json({
             message: `Appointment booked pending payment.`,
-            doctorId: selectedDoctor.doctor_id,
+            doctorName: doctor.Name,
             remainingSlots: selectedDoctor.SlotsAvailable - 1,
             appointmentDetails: savedAppointment,
             paymentLink,

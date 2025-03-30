@@ -11,6 +11,9 @@ const fetch = require("node-fetch");
 const patientSchema = require("../model/patientSchema");
 const doc = require("pdfkit");
 const { generateJitsiMeetingLink } = require("../JitsiHelper");
+const DoctorAccountsSchema = require("../model/DoctorAccountsSchema");
+const DoctorTransactionsSchema = require("../model/DoctorTransactionsSchema");
+
 
 const WATI_API_URL = "https://live-mt-server.wati.io/387357/api/v2/sendTemplateMessage";
 const WATI_API_KEY = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhZmY3OWIzZC0wY2FjLTRlMjEtOThmZC1hNTExNGQyYzBlOTEiLCJ1bmlxdWVfbmFtZSI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsIm5hbWVpZCI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsImVtYWlsIjoiY29udGFjdHVzQHBzeS1jYXJlLmluIiwiYXV0aF90aW1lIjoiMDEvMDEvMjAyNSAwNTo0NzoxOCIsInRlbmFudF9pZCI6IjM4NzM1NyIsImRiX25hbWUiOiJtdC1wcm9kLVRlbmFudHMiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBRE1JTklTVFJBVE9SIiwiZXhwIjoyNTM0MDIzMDA4MDAsImlzcyI6IkNsYXJlX0FJIiwiYXVkIjoiQ2xhcmVfQUkifQ.e4BgIPZN_WI1RU4VkLoyBAndhzW8uKntWnhr4K-J9K0"; // Replace with actual token
@@ -519,12 +522,17 @@ AppointmentRoute.post("/startSession/:appointmentId", async (req, res) => {
             return res.status(404).json({ message: "Appointment not found" });
         }
 
-        const appointmentDate = appointment.DateOfAppointment;   // e.g., 2025-04-05
-        const appointmentTime = appointment.AppStartTime;        // e.g., "10:00 AM"
+        const appointmentDate = appointment.DateOfAppointment;
+        const appointmentTime = appointment.AppStartTime;
 
-        const scheduledTime = new Date(`${appointmentDate.toDateString()} ${appointmentTime}`);
+        const [hours, minutes] = appointmentTime.split(":").map(Number);
+        const scheduledTime = new Date(appointmentDate);
+        scheduledTime.setHours(hours);
+        scheduledTime.setMinutes(minutes);
+        scheduledTime.setSeconds(0);
+        scheduledTime.setMilliseconds(0);
+
         const currentTime = new Date();
-
         const twentyMinutesLater = new Date(scheduledTime.getTime() + 20 * 60000);
 
         if (currentTime < scheduledTime) {
@@ -624,6 +632,175 @@ AppointmentRoute.get("/doctor-appointments-range", async (req, res) => {
     } catch (error) {
         console.error("Error fetching doctor appointments (range):", error);
         res.status(500).json({ message: "Internal Server Error" });
+    }
+});
+
+AppointmentRoute.post("/markCompleted/:appointmentId", async (req, res) => {
+    try {
+        const { appointmentId } = req.params;
+
+        const appointment = await AppointmentRecordsSchema.findById(appointmentId);
+        if (!appointment) {
+            return res.status(404).json({ message: "Appointment not found" });
+        }
+
+        // ✅ Step 1: Check if session started
+        if (!appointment.session_started || !appointment.session_start_time) {
+            return res.status(400).json({ message: "Session has not been started yet." });
+        }
+
+        // 🧪 [Time constraint removed for testing]
+        const sessionStart = new Date(appointment.session_start_time);
+        const currentTime = new Date();
+        const twentyMinutesLater = new Date(sessionStart.getTime() + 20 * 60000);
+        if (currentTime < twentyMinutesLater) {
+            return res.status(400).json({
+                message: "You can only mark the appointment as completed after 20 minutes of session start time."
+            });
+        }
+
+        // ✅ Step 2: Mark as completed
+        appointment.appointment_status = "completed";
+
+        // ✅ Step 3: Check if already paid
+        if (appointment.isPaidToDoctor) {
+            await appointment.save();
+            return res.status(200).json({
+                message: "Appointment marked as completed. Doctor was already paid.",
+                appointment
+            });
+        }
+
+        // ✅ Step 4: Check payout eligibility
+        if (appointment.payment_status !== "confirmed") {
+            await appointment.save();
+            return res.status(200).json({
+                message: "Appointment marked as completed, but not eligible for payout (payment not confirmed).",
+                appointment
+            });
+        }
+
+        // ✅ Step 5: Perform payout
+        const doctorId = appointment.doctor_id;
+        const amount = 500; // Update if needed
+
+        await DoctorTransactionsSchema.create({
+            doctorId,
+            type: "credit",
+            amount,
+            source: "appointment",
+            referenceId: appointment._id,
+            note: "Payout for completed appointment",
+            status: "completed"
+        });
+
+        await DoctorAccountsSchema.findOneAndUpdate(
+            { doctorId },
+            {
+                $inc: {
+                    totalEarnings: amount,
+                    currentBalance: amount
+                },
+                $set: { lastUpdated: new Date() }
+            },
+            { upsert: true }
+        );
+
+        appointment.isPaidToDoctor = true;
+        await appointment.save();
+
+        res.status(200).json({
+            message: "Appointment marked as completed and doctor credited.",
+            appointment
+        });
+
+    } catch (error) {
+        console.error("Error in markCompleted:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+AppointmentRoute.post("/markNoShow/:appointmentId", async (req, res) => {
+    try {
+        const { appointmentId } = req.params;
+
+        const appointment = await AppointmentRecordsSchema.findById(appointmentId);
+        if (!appointment) {
+            return res.status(404).json({ message: "Appointment not found" });
+        }
+
+        if (!appointment.session_started || !appointment.session_start_time) {
+            return res.status(400).json({ message: "Session has not been started yet." });
+        }
+
+        const sessionStart = new Date(appointment.session_start_time);
+        const currentTime = new Date();
+        const twentyMinutesLater = new Date(sessionStart.getTime() + 20 * 60000);
+
+        if (currentTime < twentyMinutesLater) {
+            return res.status(400).json({
+                message: "You can only mark as no-show after 20 minutes from session start time."
+            });
+        }
+
+        // ✅ Update status
+        appointment.appointment_status = "no_show";
+
+        // ✅ Check if already paid
+        if (appointment.isPaidToDoctor) {
+            await appointment.save();
+            return res.status(200).json({
+                message: "Marked as no-show. Doctor already paid.",
+                appointment
+            });
+        }
+
+        // ✅ Check payment status
+        if (appointment.payment_status !== "confirmed") {
+            await appointment.save();
+            return res.status(200).json({
+                message: "Marked as no-show. Not eligible for payout (payment not confirmed).",
+                appointment
+            });
+        }
+
+        // ✅ Pay the doctor (same as completed)
+        const doctorId = appointment.doctor_id;
+        const amount = 500; // fixed or dynamic
+
+        await DoctorTransactionsSchema.create({
+            doctorId,
+            type: "credit",
+            amount,
+            source: "appointment",
+            referenceId: appointment._id,
+            note: "Payout for no-show (doctor attended)",
+            status: "completed"
+        });
+
+        await DoctorAccountsSchema.findOneAndUpdate(
+            { doctorId },
+            {
+                $inc: {
+                    totalEarnings: amount,
+                    currentBalance: amount
+                },
+                $set: { lastUpdated: new Date() }
+            },
+            { upsert: true }
+        );
+
+        appointment.isPaidToDoctor = true;
+        await appointment.save();
+
+        res.status(200).json({
+            message: "Appointment marked as no-show. Doctor has been credited.",
+            appointment
+        });
+
+    } catch (error) {
+        console.error("Error marking as no-show:", error);
+        res.status(500).json({ message: "Server error" });
     }
 });
 

@@ -10,13 +10,19 @@ const AppointmentRecordsSchema = new mongoose.Schema({
     "DateOfAppointment": { type: Date },       // e.g. 2025-03-31
     "AppStartTime": { type: String },          // e.g. "10:00 AM"
     "AppEndTime": { type: String },
+    "appointment_status": {
+        type: String,
+        enum: ['scheduled', 'completed', 'no_show', 'cancelled'],
+        default: 'scheduled'
+    },
     "WeekDay": { type: String },
     "payment_status": { type: String },
     "payment_id": { type: String },
     "payment_link_id": { type: String },
     "meeting_link": { type: String },
     "session_started": { type: Boolean, default: false },
-    "session_start_time": { type: Date }       // ✅ New: actual timestamp
+    "session_start_time": { type: Date, default: null },
+    "isPaidToDoctor": { type: Boolean, default: false }       
 }, {
     collection: "AppointmentRecords"
 });

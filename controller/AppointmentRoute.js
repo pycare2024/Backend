@@ -526,18 +526,25 @@ AppointmentRoute.post("/startSession/:appointmentId", async (req, res) => {
         const appointmentTime = appointment.AppStartTime;      // e.g., "19:06" for 7:06 PM
 
         const [hours, minutes] = appointmentTime.split(":").map(Number);
+        const appointmentDateObj = new Date(appointmentDate);
 
-        // ✅ Convert appointmentDate to string (YYYY-MM-DD) without timezone shift
-        const dateOnlyStr = new Date(appointmentDate).toLocaleDateString("en-CA"); // 'YYYY-MM-DD'
-        const combinedTimeStr = `${dateOnlyStr} ${appointmentTime}`;               // '2025-03-31 19:06'
+        // Manually apply IST offset by building a new Date object with UTC values
+        const scheduledTimeIST = new Date(Date.UTC(
+            appointmentDateObj.getFullYear(),
+            appointmentDateObj.getMonth(),
+            appointmentDateObj.getDate(),
+            hours - 5,               // Subtract 5 for UTC offset
+            minutes - 30             // Subtract 30 for 5:30 offset
+        ));
 
-        // ✅ Parse combined datetime string as IST
-        const scheduledTimeIST = new Date(new Date(combinedTimeStr).toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-        const currentTimeIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+        // Current time in IST
+        const nowUTC = new Date();
+        const currentTimeIST = new Date(nowUTC.getTime() + (5.5 * 60 * 60 * 1000));
 
+        // 20-minute window
         const twentyMinutesLaterIST = new Date(scheduledTimeIST.getTime() + 20 * 60000);
 
-        // ✅ Time checks
+        // Comparison
         if (currentTimeIST < scheduledTimeIST) {
             return res.status(400).json({
                 message: `You cannot start the session before the scheduled time: ${scheduledTimeIST.toLocaleString("en-IN")}`

@@ -581,6 +581,36 @@ AppointmentRoute.post("/startSession/:appointmentId", async (req, res) => {
     }
 });
 
+AppointmentRoute.get("/doctor-appointments-range", async (req, res) => {
+    try {
+        const { doctorId, from, to } = req.query;
+
+        if (!doctorId || !from || !to) {
+            return res.status(400).json({ message: "Doctor ID, from date, and to date are required." });
+        }
+
+        const fromDate = new Date(from);
+        fromDate.setHours(0, 0, 0, 0);
+
+        const toDate = new Date(to);
+        toDate.setHours(23, 59, 59, 999);
+
+        const filter = {
+            doctor_id: doctorId,
+            DateOfAppointment: { $gte: fromDate, $lte: toDate },
+        };
+
+        const appointments = await AppointmentRecordsSchema.find(filter)
+            .sort({ DateOfAppointment: 1 })
+            .lean();
+
+        res.status(200).json(appointments);
+    } catch (error) {
+        console.error("Error fetching doctor appointments (range):", error);
+        res.status(500).json({ message: "Internal Server Error" });
+    }
+});
+
 
 module.exports = AppointmentRoute;
 

@@ -207,7 +207,7 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
         } else if (preferredTime === "afternoon") {
             timeFilter = { "Slots.startTime": { $gte: "12:00", $lt: "16:00" } };
         } else if (preferredTime === "evening") {
-            timeFilter = { "Slots.startTime": { $gte: "16:00", $lt: "19:00" } };
+            timeFilter = { "Slots.startTime": { $gte: "16:00", $lt: "21:00" } };
         } else {
             return res.status(400).json({ message: "Invalid preferredTime. Use morning, afternoon, or evening." });
         }

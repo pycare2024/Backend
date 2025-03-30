@@ -10,7 +10,7 @@ const DoctorsAssignmentPrioritySchema = require("../model/DoctorsAssignmentPrior
 const fetch = require("node-fetch");
 const patientSchema = require("../model/patientSchema");
 const doc = require("pdfkit");
-const {generateJitsiMeetingLink} = require("../JitsiHelper");
+const { generateJitsiMeetingLink } = require("../JitsiHelper");
 
 const WATI_API_URL = "https://live-mt-server.wati.io/387357/api/v2/sendTemplateMessage";
 const WATI_API_KEY = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhZmY3OWIzZC0wY2FjLTRlMjEtOThmZC1hNTExNGQyYzBlOTEiLCJ1bmlxdWVfbmFtZSI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsIm5hbWVpZCI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsImVtYWlsIjoiY29udGFjdHVzQHBzeS1jYXJlLmluIiwiYXV0aF90aW1lIjoiMDEvMDEvMjAyNSAwNTo0NzoxOCIsInRlbmFudF9pZCI6IjM4NzM1NyIsImRiX25hbWUiOiJtdC1wcm9kLVRlbmFudHMiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBRE1JTklTVFJBVE9SIiwiZXhwIjoyNTM0MDIzMDA4MDAsImlzcyI6IkNsYXJlX0FJIiwiYXVkIjoiQ2xhcmVfQUkifQ.e4BgIPZN_WI1RU4VkLoyBAndhzW8uKntWnhr4K-J9K0"; // Replace with actual token
@@ -296,14 +296,14 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             payment_status: "pending",
             payment_id: null,
             payment_link_id: null,
-            meeting_link: null 
+            meeting_link: null
         });
 
         const savedAppointment = await newAppointment.save();
 
         // ✅ Generate a Razorpay Payment Link
         const paymentLinkResponse = await razorpay.paymentLink.create({
-            amount: 100, 
+            amount: 100,
             currency: "INR",
             accept_partial: false,
             description: "Appointment Booking Fee",
@@ -348,11 +348,10 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
 
         const doctor = await DoctorSchema.findById(new mongoose.Types.ObjectId(selectedDoctor.doctor_id));
 
-        if(!doctor)
-            {
-                    console.error("Doctor not found with doctor id->",selectedDoctor.doctor_id);
-                    return res.status(404).json({ message: "Doctor not found." });
-            }
+        if (!doctor) {
+            console.error("Doctor not found with doctor id->", selectedDoctor.doctor_id);
+            return res.status(404).json({ message: "Doctor not found." });
+        }
 
         return res.status(200).json({
             message: `Appointment booked pending payment.`,
@@ -421,28 +420,28 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
             }
 
             await DoctorScheduleSchema.updateOne(
-                { _id: appointment.doctorScheduleId, 
-                   "Slots.startTime":appointment.AppStartTime,
-                   "Slots.isBooked":false 
+                {
+                    _id: appointment.doctorScheduleId,
+                    "Slots.startTime": appointment.AppStartTime,
+                    "Slots.isBooked": false
                 },
                 {
                     $set:
                     {
-                        "Slots.$.isBooked":true,
-                        "Slots.$.bookedBy":appointment.patient_id
+                        "Slots.$.isBooked": true,
+                        "Slots.$.bookedBy": appointment.patient_id
                     },
                     $inc: { SlotsAvailable: -1 }
                 },
-                
+
             );
 
             const doctor = await DoctorSchema.findById(new mongoose.Types.ObjectId(appointment.doctor_id));
 
-            if(!doctor)
-                {
-                    console.error("Doctor not found with doctor id->",appointment.doctor_id);
-                    return res.status(404).json({ message: "Doctor not found." });
-                }
+            if (!doctor) {
+                console.error("Doctor not found with doctor id->", appointment.doctor_id);
+                return res.status(404).json({ message: "Doctor not found." });
+            }
 
             const patientPhoneNumber = appointment.patientPhoneNumber;
             const patientName = appointment.patientName;
@@ -515,10 +514,38 @@ AppointmentRoute.post("/startSession/:appointmentId", async (req, res) => {
     try {
         const { appointmentId } = req.params;
 
-        // Update sessionStarted status in the database
-        const appointment = await AppointmentRecordsSchema.findByIdAndUpdate(
+        const appointment = await AppointmentRecordsSchema.findById(appointmentId);
+        if (!appointment) {
+            return res.status(404).json({ message: "Appointment not found" });
+        }
+
+        const appointmentDate = appointment.DateOfAppointment;   // e.g., 2025-04-05
+        const appointmentTime = appointment.AppStartTime;        // e.g., "10:00 AM"
+
+        const scheduledTime = new Date(`${appointmentDate.toDateString()} ${appointmentTime}`);
+        const currentTime = new Date();
+
+        const twentyMinutesLater = new Date(scheduledTime.getTime() + 20 * 60000);
+
+        if (currentTime < scheduledTime) {
+            return res.status(400).json({
+                message: `You cannot start the session before the scheduled time: ${scheduledTime.toLocaleString()}`
+            });
+        }
+
+        if (currentTime > twentyMinutesLater) {
+            return res.status(400).json({
+                message: "The session window has expired. You cannot send the meeting link more than 20 minutes after the scheduled time."
+            });
+        }
+
+        // Proceed with session start
+        const updatedAppointment = await AppointmentRecordsSchema.findByIdAndUpdate(
             appointmentId,
-            { session_started: true },
+            {
+                session_started: true,
+                session_start_time: new Date()
+            },
             { new: true }
         );
 
@@ -528,14 +555,12 @@ AppointmentRoute.post("/startSession/:appointmentId", async (req, res) => {
         const doctor_id = appointment.doctor_id;
 
         const doctor = await DoctorSchema.findById(new mongoose.Types.ObjectId(doctor_id));
+        if (!doctor) {
+            console.error("Doctor not found with doctor id->", doctor_id);
+            return res.status(404).json({ message: "Doctor not found." });
+        }
 
-            if(!doctor)
-                {
-                    console.error("Doctor not found with doctor id->",doctor_id);
-                    return res.status(404).json({ message: "Doctor not found." });
-                }
-
-        const doctor_name = doctor.Name;       
+        const doctor_name = doctor.Name;
 
         if (patientPhoneNumber) {
             const whatsappResponse = await fetch(`${WATI_API_URL}?whatsappNumber=91${patientPhoneNumber}`, {
@@ -548,18 +573,9 @@ AppointmentRoute.post("/startSession/:appointmentId", async (req, res) => {
                     template_name: "meeting_link",
                     broadcast_name: "providing_meeting_link",
                     parameters: [
-                        {
-                            name: "patient_name",
-                            value: patientName  // ✅ Patient's name for {{1}}
-                        },
-                        {
-                            name: "doctor_name",
-                            value: doctor_name // ✅ Unique payment link or ID for {{2}}
-                        },
-                        {
-                            name: "meet_link",
-                            value: meet_link  // ✅ Patient's name for {{1}}
-                        }
+                        { name: "patient_name", value: patientName },
+                        { name: "doctor_name", value: doctor_name },
+                        { name: "meet_link", value: meet_link }
                     ]
                 })
             });
@@ -570,11 +586,11 @@ AppointmentRoute.post("/startSession/:appointmentId", async (req, res) => {
             }
         }
 
-        if (!appointment) {
-            return res.status(404).json({ message: "Appointment not found" });
-        }
+        res.status(200).json({
+            message: "Session started successfully",
+            appointment: updatedAppointment
+        });
 
-        res.status(200).json({ message: "Session started successfully", appointment });
     } catch (error) {
         console.error("Error starting session:", error);
         res.status(500).json({ message: "Server error" });

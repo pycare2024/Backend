@@ -1,6 +1,8 @@
 const express = require("express");
 const DoctorSchema = require("../model/DoctorSchema");
 const DoctorRoute = express.Router();
+const DoctorAccountsSchema = require("../model/DoctorAccountsSchema");
+const DoctorTransactionsSchema = require("../model/DoctorTransactionsSchema");
 
 // Fetch all doctors
 DoctorRoute.get("/", (req, res) => {
@@ -150,6 +152,57 @@ DoctorRoute.delete("/delete/:id", async (req, res) => {
         res.json({ success: true, message: "Doctor deleted successfully" });
     } catch (error) {
         res.status(500).json({ success: false, message: "Server error, please try again" });
+    }
+});
+
+DoctorRoute.get("/getDoctorAccountSummary/:doctorId", async (req, res) => {
+    const { doctorId } = req.params;
+
+    try {
+        const account = await DoctorAccountsSchema.findOne({ doctorId });
+
+        if (!account) {
+            return res.status(404).json({ success: false, message: "Account not found for this doctor" });
+        }
+
+        return res.json({
+            success: true,
+            message: "Doctor account summary fetched successfully",
+            data: {
+                totalEarnings: account.totalEarnings,
+                totalWithdrawn: account.totalWithdrawn,
+                currentBalance: account.currentBalance,
+                lastUpdated: account.lastUpdated,
+            },
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: "Server error", error: error.message });
+    }
+});
+
+DoctorRoute.get("/getDoctorTransactions/:doctorId", async (req, res) => {
+    const { doctorId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    try {
+        const filter = { doctorId };
+
+        if (startDate || endDate) {
+            filter.createdAt = {};
+            if (startDate) filter.createdAt.$gte = new Date(startDate);
+            if (endDate) filter.createdAt.$lte = new Date(endDate);
+        }
+
+        const transactions = await DoctorTransactionsSchema.find(filter).sort({ createdAt: -1 });
+
+        return res.json({
+            success: true,
+            message: "Transactions fetched successfully",
+            data: transactions,
+        });
+
+    } catch (error) {
+        return res.status(500).json({ success: false, message: "Server error", error: error.message });
     }
 });
 

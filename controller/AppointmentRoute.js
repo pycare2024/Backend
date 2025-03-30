@@ -526,22 +526,29 @@ AppointmentRoute.post("/startSession/:appointmentId", async (req, res) => {
         const appointmentTime = appointment.AppStartTime;
 
         const [hours, minutes] = appointmentTime.split(":").map(Number);
+
+        // Step 1: Build scheduled time from date + time
         const scheduledTime = new Date(appointmentDate);
         scheduledTime.setHours(hours);
         scheduledTime.setMinutes(minutes);
         scheduledTime.setSeconds(0);
         scheduledTime.setMilliseconds(0);
 
-        const currentTime = new Date();
-        const twentyMinutesLater = new Date(scheduledTime.getTime() + 20 * 60000);
+        // Step 2: Convert both scheduledTime and currentTime to IST
+        const scheduledTimeIST = new Date(scheduledTime.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+        const currentTimeIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
 
-        if (currentTime < scheduledTime) {
+        // Step 3: Calculate expiry window
+        const twentyMinutesLaterIST = new Date(scheduledTimeIST.getTime() + 20 * 60000);
+
+        // Step 4: Compare
+        if (currentTimeIST < scheduledTimeIST) {
             return res.status(400).json({
-                message: `You cannot start the session before the scheduled time: ${scheduledTime.toLocaleString()}`
+                message: `You cannot start the session before the scheduled time: ${scheduledTimeIST.toLocaleString()}`
             });
         }
 
-        if (currentTime > twentyMinutesLater) {
+        if (currentTimeIST > twentyMinutesLaterIST) {
             return res.status(400).json({
                 message: "The session window has expired. You cannot send the meeting link more than 20 minutes after the scheduled time."
             });

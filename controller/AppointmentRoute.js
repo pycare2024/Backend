@@ -522,29 +522,25 @@ AppointmentRoute.post("/startSession/:appointmentId", async (req, res) => {
             return res.status(404).json({ message: "Appointment not found" });
         }
 
-        const appointmentDate = appointment.DateOfAppointment;
-        const appointmentTime = appointment.AppStartTime;
+        const appointmentDate = appointment.DateOfAppointment; // This is a Date object
+        const appointmentTime = appointment.AppStartTime;      // e.g., "19:06" for 7:06 PM
 
         const [hours, minutes] = appointmentTime.split(":").map(Number);
 
-        // Step 1: Build scheduled time from date + time
-        const scheduledTime = new Date(appointmentDate);
-        scheduledTime.setHours(hours);
-        scheduledTime.setMinutes(minutes);
-        scheduledTime.setSeconds(0);
-        scheduledTime.setMilliseconds(0);
+        // ✅ Convert appointmentDate to string (YYYY-MM-DD) without timezone shift
+        const dateOnlyStr = new Date(appointmentDate).toLocaleDateString("en-CA"); // 'YYYY-MM-DD'
+        const combinedTimeStr = `${dateOnlyStr} ${appointmentTime}`;               // '2025-03-31 19:06'
 
-        // Step 2: Convert both scheduledTime and currentTime to IST
-        const scheduledTimeIST = new Date(scheduledTime.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+        // ✅ Parse combined datetime string as IST
+        const scheduledTimeIST = new Date(new Date(combinedTimeStr).toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
         const currentTimeIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
 
-        // Step 3: Calculate expiry window
         const twentyMinutesLaterIST = new Date(scheduledTimeIST.getTime() + 20 * 60000);
 
-        // Step 4: Compare
+        // ✅ Time checks
         if (currentTimeIST < scheduledTimeIST) {
             return res.status(400).json({
-                message: `You cannot start the session before the scheduled time: ${scheduledTimeIST.toLocaleString()}`
+                message: `You cannot start the session before the scheduled time: ${scheduledTimeIST.toLocaleString("en-IN")}`
             });
         }
 
@@ -554,7 +550,7 @@ AppointmentRoute.post("/startSession/:appointmentId", async (req, res) => {
             });
         }
 
-        // Proceed with session start
+        // ✅ Proceed with session start
         const updatedAppointment = await AppointmentRecordsSchema.findByIdAndUpdate(
             appointmentId,
             {
@@ -571,7 +567,7 @@ AppointmentRoute.post("/startSession/:appointmentId", async (req, res) => {
 
         const doctor = await DoctorSchema.findById(new mongoose.Types.ObjectId(doctor_id));
         if (!doctor) {
-            console.error("Doctor not found with doctor id->", doctor_id);
+            console.error("Doctor not found with doctor id ->", doctor_id);
             return res.status(404).json({ message: "Doctor not found." });
         }
 
@@ -607,8 +603,8 @@ AppointmentRoute.post("/startSession/:appointmentId", async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Error starting session:", error);
-        res.status(500).json({ message: "Server error" });
+        console.error("Error starting session:", error.message, error.stack);
+        res.status(500).json({ message: "Server error", error: error.message });
     }
 });
 

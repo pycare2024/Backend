@@ -1,19 +1,158 @@
 
-const express=require("express");
-const AdminSchema=require("../model/AdminSchema");
+const express = require("express");
+const AdminSchema = require("../model/AdminSchema");
 const { json } = require("body-parser");
-const AdminRoute=express.Router();
+const AdminRoute = express.Router();
 
-AdminRoute.get("/",(req,res)=>{
-    AdminSchema.find((err,data)=>{
-        if(err)
+const AppointmentRecordsSchema = require("../model/AppointmentRecordsSchema");
+const DoctorAccountsSchema = require("../model/DoctorAccountsSchema");
+const DoctorTransactionsSchema = require("../model/DoctorTransactionsSchema");
+const DoctorSchema = require("../model/DoctorSchema"); // assumed name
+
+AdminRoute.get("/companyAccountsSummary", async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+
+        // 1️⃣ Filter base for all date-bound queries
+        const dateMatch = {};
+        if (startDate) dateMatch.$gte = new Date(startDate);
+        if (endDate) dateMatch.$lte = new Date(endDate);
+
+        // 2️⃣ Fetch total appointments booked per doctor
+        const totalAppointmentsStats = await AppointmentRecordsSchema.aggregate([
             {
-                return err;
-            }
-            else
+                $match: {
+                    ...(startDate || endDate ? { DateOfAppointment: dateMatch } : {})
+                }
+            },
             {
-                return res.json(data);
+                $group: {
+                    _id: "$doctor_id",
+                    totalAppointments: { $sum: 1 }
+                }
             }
+        ]);
+
+        // 3️⃣ Fetch sessions completed (session_started = true)
+        // 3️⃣ Fetch sessions completed (only valid payable ones)
+        const sessionFilter = {
+            session_started: true,
+            appointment_status: { $in: ["completed", "no_show"] }
+        };
+
+        if (startDate || endDate) {
+            sessionFilter.DateOfAppointment = dateMatch;
+        }
+
+        const sessionStats = await AppointmentRecordsSchema.aggregate([
+            { $match: sessionFilter },
+            {
+                $group: {
+                    _id: "$doctor_id",
+                    totalSessions: { $sum: 1 }
+                }
+            }
+        ]);
+
+        // 4️⃣ Fetch transactions grouped per doctor
+        const txnMatch = { status: "completed" };
+        if (startDate || endDate) {
+            txnMatch.createdAt = dateMatch;
+        }
+
+        const transactionStats = await DoctorTransactionsSchema.aggregate([
+            { $match: txnMatch },
+            {
+                $group: {
+                    _id: "$doctorId",
+                    totalCredits: {
+                        $sum: {
+                            $cond: [{ $eq: ["$type", "credit"] }, "$amount", 0]
+                        }
+                    },
+                    totalDebits: {
+                        $sum: {
+                            $cond: [{ $eq: ["$type", "debit"] }, "$amount", 0]
+                        }
+                    }
+                }
+            }
+        ]);
+
+        // 5️⃣ Combine all doctor IDs from all sources
+        const doctorIds = [...new Set([
+            ...totalAppointmentsStats.map(d => d._id.toString()),
+            ...sessionStats.map(d => d._id.toString()),
+            ...transactionStats.map(d => d._id.toString())
+        ])];
+
+        // 6️⃣ Fetch doctor accounts and basic info
+        const [doctorAccounts, doctorDetails] = await Promise.all([
+            DoctorAccountsSchema.find({ doctorId: { $in: doctorIds } }),
+            DoctorSchema.find({ _id: { $in: doctorIds } })
+        ]);
+
+        // 7️⃣ Combine all data into final response
+        let totalEarnings = 0;
+        let totalWithdrawn = 0;
+        let sessionCount = 0;
+
+        const doctorBreakdown = doctorIds.map(doctorId => {
+            const doctorIdStr = doctorId.toString();
+
+            const appointmentsData = totalAppointmentsStats.find(a => a._id.toString() === doctorIdStr);
+            const sessionData = sessionStats.find(s => s._id.toString() === doctorIdStr);
+            const txnData = transactionStats.find(t => t._id.toString() === doctorIdStr);
+            const acc = doctorAccounts.find(a => a.doctorId.toString() === doctorIdStr);
+            const doc = doctorDetails.find(d => d._id.toString() === doctorIdStr);
+
+            const earnings = txnData?.totalCredits || 0;
+            const withdrawn = txnData?.totalDebits || 0;
+            const sessionsCompleted = sessionData?.totalSessions || 0;
+            const appointmentsBooked = appointmentsData?.totalAppointments || 0;
+            const balance = earnings - withdrawn;
+
+            totalEarnings += earnings;
+            totalWithdrawn += withdrawn;
+            sessionCount += sessionsCompleted;
+
+            return {
+                doctorId: doctorIdStr,
+                name: doc?.Name || "Unknown Doctor",
+                appointmentsBooked,
+                sessionsCompleted,
+                earnings,
+                withdrawn,
+                balance
+            };
+        });
+
+        // ✅ Respond with final summary
+        res.json({
+            success: true,
+            message: "Company accounts summary fetched",
+            data: {
+                totalEarnings,
+                totalWithdrawn,
+                sessionCount,
+                doctorBreakdown
+            }
+        });
+
+    } catch (error) {
+        console.error("Company Accounts Error:", error);
+        res.status(500).json({ success: false, message: "Server error", error: error.message });
+    }
+});
+
+AdminRoute.get("/", (req, res) => {
+    AdminSchema.find((err, data) => {
+        if (err) {
+            return err;
+        }
+        else {
+            return res.json(data);
+        }
     })
 });
 
@@ -22,12 +161,12 @@ AdminRoute.post("/login", async (req, res) => {
 
     try {
         const admin = await AdminSchema.findOne({ loginId: loginId, password: password });
-        
+
         if (admin) {
-            return res.json({ 
-                message: "Login successful", 
+            return res.json({
+                message: "Login successful",
                 success: true,
-                admin:{name:admin.Name,emp_id:admin.emp_id}
+                admin: { name: admin.Name, emp_id: admin.emp_id }
             });
         } else {
             return res.status(401).json({ message: "Invalid login ID or password", success: false });
@@ -76,4 +215,4 @@ AdminRoute.post("/resetPassword", async (req, res) => {
 });
 
 
-module.exports=AdminRoute;
+module.exports = AdminRoute;

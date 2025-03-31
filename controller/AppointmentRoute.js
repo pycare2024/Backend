@@ -528,14 +528,11 @@ AppointmentRoute.post("/startSession/:appointmentId", async (req, res) => {
         const [hours, minutes] = appointmentTime.split(":").map(Number);
         const appointmentDateObj = new Date(appointmentDate);
 
-        // Manually apply IST offset by building a new Date object with UTC values
-        const scheduledTimeIST = new Date(Date.UTC(
-            appointmentDateObj.getFullYear(),
-            appointmentDateObj.getMonth(),
-            appointmentDateObj.getDate(),
-            hours - 5,               // Subtract 5 for UTC offset
-            minutes - 30             // Subtract 30 for 5:30 offset
-        ));
+        const scheduledTimeIST = new Date(appointmentDateObj);
+        scheduledTimeIST.setHours(hours);
+        scheduledTimeIST.setMinutes(minutes);
+        scheduledTimeIST.setSeconds(0);
+        scheduledTimeIST.setMilliseconds(0);
 
         // Current time in IST
         const nowUTC = new Date();

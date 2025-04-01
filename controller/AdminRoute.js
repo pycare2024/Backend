@@ -35,17 +35,15 @@ AdminRoute.get("/companyAccountsSummary", async (req, res) => {
 
         // 3️⃣ Fetch sessions completed (session_started = true)
         // 3️⃣ Fetch sessions completed (only valid payable ones)
-        const sessionFilter = {
-            session_started: true,
-            appointment_status: { $in: ["completed", "no_show"] }
-        };
-
-        if (startDate || endDate) {
-            sessionFilter.DateOfAppointment = dateMatch;
-        }
 
         const sessionStats = await AppointmentRecordsSchema.aggregate([
-            { $match: sessionFilter },
+            {
+                $match: {
+                    session_started: true,
+                    appointment_status: { $in: ["completed", "no_show"] },
+                    ...(startDate || endDate ? { DateOfAppointment: dateMatch } : {})
+                }
+            },
             {
                 $group: {
                     _id: "$doctor_id",
@@ -79,6 +77,22 @@ AdminRoute.get("/companyAccountsSummary", async (req, res) => {
             }
         ]);
 
+        const cancelledAppointmentsStats = await AppointmentRecordsSchema.aggregate([
+            {
+                $match: {
+                    session_started: false,
+                    appointment_status: { $in: ["cancelled", "no_show"] },
+                    ...(startDate || endDate ? { DateOfAppointment: dateMatch } : {})
+                }
+            },
+            {
+                $group: {
+                    _id: "$doctor_id",
+                    totalCancelled: { $sum: 1 }
+                }
+            }
+        ]);
+
         // 5️⃣ Combine all doctor IDs from all sources
         const doctorIds = [...new Set([
             ...totalAppointmentsStats.map(d => d._id.toString()),
@@ -95,7 +109,9 @@ AdminRoute.get("/companyAccountsSummary", async (req, res) => {
         // 7️⃣ Combine all data into final response
         let totalEarnings = 0;
         let totalWithdrawn = 0;
+        let appointmentCount = 0;
         let sessionCount = 0;
+        let cancelledCount = 0;
 
         const doctorBreakdown = doctorIds.map(doctorId => {
             const doctorIdStr = doctorId.toString();
@@ -105,22 +121,27 @@ AdminRoute.get("/companyAccountsSummary", async (req, res) => {
             const txnData = transactionStats.find(t => t._id.toString() === doctorIdStr);
             const acc = doctorAccounts.find(a => a.doctorId.toString() === doctorIdStr);
             const doc = doctorDetails.find(d => d._id.toString() === doctorIdStr);
+            const cancelledData = cancelledAppointmentsStats.find(c => c._id.toString() === doctorIdStr);
 
             const earnings = txnData?.totalCredits || 0;
             const withdrawn = txnData?.totalDebits || 0;
             const sessionsCompleted = sessionData?.totalSessions || 0;
             const appointmentsBooked = appointmentsData?.totalAppointments || 0;
             const balance = earnings - withdrawn;
+            const cancelledAppointments = cancelledData?.totalCancelled || 0;
 
             totalEarnings += earnings;
             totalWithdrawn += withdrawn;
+            appointmentCount += appointmentsBooked;
             sessionCount += sessionsCompleted;
+            cancelledCount += cancelledAppointments;
 
             return {
                 doctorId: doctorIdStr,
                 name: doc?.Name || "Unknown Doctor",
                 appointmentsBooked,
                 sessionsCompleted,
+                cancelledAppointments,
                 earnings,
                 withdrawn,
                 balance
@@ -134,7 +155,9 @@ AdminRoute.get("/companyAccountsSummary", async (req, res) => {
             data: {
                 totalEarnings,
                 totalWithdrawn,
+                appointmentCount,
                 sessionCount,
+                cancelledCount,
                 doctorBreakdown
             }
         });

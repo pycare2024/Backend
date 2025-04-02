@@ -697,7 +697,7 @@ AppointmentRoute.post("/markCompleted/:appointmentId", async (req, res) => {
             amount,
             source: "appointment",
             referenceId: appointment._id,
-            note: "Payout for completed appointment",
+            note: "Payout for appointment (Completed)",
             status: "completed"
         });
 
@@ -781,7 +781,7 @@ AppointmentRoute.post("/markNoShow/:appointmentId", async (req, res) => {
             amount,
             source: "appointment",
             referenceId: appointment._id,
-            note: "Payout for no-show (doctor attended)",
+            note: "Payout for appointment (No-Show)",
             status: "completed"
         });
 

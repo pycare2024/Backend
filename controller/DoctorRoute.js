@@ -195,13 +195,40 @@ DoctorRoute.get("/getDoctorTransactions/:doctorId", async (req, res) => {
 
         const transactions = await DoctorTransactionsSchema.find(filter).sort({ createdAt: -1 });
 
+        // Transform data into professional format
+        const formattedTransactions = transactions.map((txn, index) => {
+            let description = "";
+
+            if (txn.type === "credit") {
+                if (txn.note?.toLowerCase().includes("no-show")) {
+                    description = "No-Show by patient (Payable)";
+                } else if (txn.source === "appointment") {
+                    description = "Session completed (Payable)";
+                } else {
+                    description = "Credit Adjustment";
+                }
+            } else if (txn.type === "debit") {
+                description = "Withdrawal";
+            }
+
+            return {
+                sno: index + 1,
+                date: new Date(txn.createdAt).toLocaleDateString(),
+                type: txn.type,
+                amount: txn.amount,
+                description,
+                referenceId: txn.type === "credit" ? txn.referenceId || null : null
+            };
+        });
+
         return res.json({
             success: true,
             message: "Transactions fetched successfully",
-            data: transactions,
+            data: formattedTransactions,
         });
 
     } catch (error) {
+        console.error("Transaction Fetch Error:", error);
         return res.status(500).json({ success: false, message: "Server error", error: error.message });
     }
 });

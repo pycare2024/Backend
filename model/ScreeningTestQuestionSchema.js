@@ -1,13 +1,29 @@
+const mongoose = require("mongoose");
 
-const mongoose=require("mongoose");
-const {ObjectId}=mongoose.Schema.Types;
+const ScreeningTestQuestionSchema = new mongoose.Schema(
+  {
+    section: {
+      type: String,
+      required: true
+    },
+    order: {
+      type: Number,
+      required: true,
+      unique: true
+    },
+    question: {
+      type: String,
+      required: true
+    },
+    options: {
+      type: [String], // Array of answer strings (1-based mapping to answer index)
+      required: true
+    }
+  },
+  {
+    collection: "ScreeningTestQuestions",
+    timestamps: true
+  }
+);
 
-const ScreeningTestQuestionSchema=new mongoose.Schema({
-    "no":{type:Number},
-    "eng":{type:String},
-    "hin":{type:String}
-},{
-    collection:"ScreeningTestQuestions"
-})
-
-module.exports=mongoose.model("ScreeningTestQuestionSchema",ScreeningTestQuestionSchema);
+module.exports = mongoose.model("ScreeningTestQuestionSchema", ScreeningTestQuestionSchema);

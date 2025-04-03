@@ -1,8 +1,19 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const NewScreeningTestSchema = require("../model/NewScreeningTestSchema"); // Ensure correct path
+const ScreeningTestQuestionSchema = require("../model/ScreeningTestQuestionSchema");
 const NewScreeningTestRoute = express.Router();
 const fetch = require("node-fetch");
+
+NewScreeningTestRoute.get("/getQuestions", async (req, res) => {
+    try {
+      const questions = await ScreeningTestQuestionSchema.find().sort({ order: 1 });
+      res.status(200).json({ success: true, questions });
+    } catch (error) {
+      console.error("Error fetching screening test questions:", error);
+      res.status(500).json({ success: false, message: "Internal server error" });
+    }
+  });
 
 NewScreeningTestRoute.get("/", (req, res) => {
     NewScreeningTestSchema.find((err, data) => {

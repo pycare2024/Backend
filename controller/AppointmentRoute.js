@@ -886,7 +886,9 @@ AppointmentRoute.post("/cancelAndRefund/:appointmentId", async (req, res) => {
 
 AppointmentRoute.post("/autoCancelUnstartedAppointments", async (req, res) => {
     try {
-        const now = new Date();
+        const nowUTC = new Date();
+        const nowIST = new Date(nowUTC.getTime() + 5.5 * 60 * 60 * 1000);
+
 
         const appointments = await AppointmentRecordsSchema.find({
             appointment_status: "scheduled",
@@ -901,9 +903,11 @@ AppointmentRoute.post("/autoCancelUnstartedAppointments", async (req, res) => {
             const [hours, minutes] = appt.AppStartTime.split(":").map(Number);
             appointmentDate.setHours(hours, minutes, 0, 0);
 
-            const deadline = new Date(appointmentDate.getTime() + 20 * 60 * 1000);
+            const deadline = new Date(appointmentDate.getTime() + 20 * 60000);
 
-            if (now > deadline) {
+            console.log(`Checking appointment ${appt._id} — Deadline: ${deadline}, Now IST: ${nowIST}`);
+
+            if (nowIST > deadline) {
                 try {
                     const refund = await InitiateRefund(appt.payment_id);
 

@@ -16,6 +16,7 @@ const NewScreeningTestRoute = require("./controller/NewScreeningTestRoute");
 const dotenv = require("dotenv");
 const PaymentRoute = require("./controller/PaymentRoute");
 const OperatorRoute = require("./controller/OperatorRoute");
+const autoCancelAppointment = require("./Utility/autoCancelAppointment");
 
 
 dotenv.config();
@@ -30,6 +31,8 @@ mongoose.connect("mongodb+srv://vae0620:Amen123@cluster0.yagt9.mongodb.net/Compa
 const db=mongoose.connection;
 db.on("open",()=>console.log("Connected to DataBase"));
 db.on("error",(error)=>console.log("Error Occurred"));
+
+autoCancelAppointment();
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended:true}));

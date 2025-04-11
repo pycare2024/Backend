@@ -814,75 +814,161 @@ AppointmentRoute.post("/markNoShow/:appointmentId", async (req, res) => {
 
 AppointmentRoute.post("/cancelAndRefund/:appointmentId", async (req, res) => {
     try {
-      const { appointmentId } = req.params;
-  
-      const appointment = await AppointmentRecordsSchema.findById(appointmentId);
-      if (!appointment) {
-        return res.status(404).json({ message: "Appointment not found." });
-      }
-  
-      if (appointment.payment_status !== "confirmed") {
-        return res.status(400).json({ message: "Refund cannot be processed. Payment is not confirmed." });
-      }
-  
-      if (appointment.appointment_status === "cancelled") {
-        return res.status(400).json({ message: "Appointment is already cancelled." });
-      }
-  
-      // ✅ Refund via Razorpay
-      const refund = await InitiateRefund(appointment.payment_id);
-  
-      // ✅ Update DB
-      appointment.appointment_status = "cancelled";
-      appointment.payment_status = "refunded";
-      appointment.refund_id = refund.id;
-      appointment.cancellation_reason = "Cancelled by Admin";
-      await appointment.save();
-  
-      // ✅ Send WhatsApp notification via WATI
-      const patientPhone = appointment.patientPhoneNumber;
-      const patientName = appointment.patientName;
-      const doctor = await DoctorSchema.findById(appointment.doctor_id);
-  
-      if (patientPhone && doctor) {
-        const formattedDate = new Date(appointment.DateOfAppointment).toLocaleDateString("en-IN", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric"
-        });
-  
-        const payload = {
-          template_name: "payment_refund",
-          broadcast_name: "Doctor_Cancelled_Refund",
-          parameters: [
-            { name: "patient_name", value: patientName },
-            { name: "doctor_name", value: doctor.Name },
-            { name: "date", value: formattedDate },
-            { name: "time", value: appointment.AppStartTime }
-          ]
-        };
-  
-        const whatsappResponse = await fetch(`${WATI_API_URL}?whatsappNumber=91${patientPhone}`, {
-          method: "POST",
-          headers: {
-            "Authorization": WATI_API_KEY,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(payload)
-        });
-  
-        const data = await whatsappResponse.json();
-        if (!whatsappResponse.ok) {
-          console.error("Failed to send WhatsApp message:", data);
+        const { appointmentId } = req.params;
+
+        const appointment = await AppointmentRecordsSchema.findById(appointmentId);
+        if (!appointment) {
+            return res.status(404).json({ message: "Appointment not found." });
         }
-      }
-  
-      res.status(200).json({ message: "Appointment cancelled and refund initiated.", refund });
+
+        if (appointment.payment_status !== "confirmed") {
+            return res.status(400).json({ message: "Refund cannot be processed. Payment is not confirmed." });
+        }
+
+        if (appointment.appointment_status === "cancelled") {
+            return res.status(400).json({ message: "Appointment is already cancelled." });
+        }
+
+        // ✅ Refund via Razorpay
+        const refund = await InitiateRefund(appointment.payment_id);
+
+        // ✅ Update DB
+        appointment.appointment_status = "cancelled";
+        appointment.payment_status = "refunded";
+        appointment.refund_id = refund.id;
+        appointment.cancellation_reason = "Cancelled by Admin";
+        await appointment.save();
+
+        // ✅ Send WhatsApp notification via WATI
+        const patientPhone = appointment.patientPhoneNumber;
+        const patientName = appointment.patientName;
+        const doctor = await DoctorSchema.findById(appointment.doctor_id);
+
+        if (patientPhone && doctor) {
+            const formattedDate = new Date(appointment.DateOfAppointment).toLocaleDateString("en-IN", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric"
+            });
+
+            const payload = {
+                template_name: "payment_refund",
+                broadcast_name: "Doctor_Cancelled_Refund",
+                parameters: [
+                    { name: "patient_name", value: patientName },
+                    { name: "doctor_name", value: doctor.Name },
+                    { name: "date", value: formattedDate },
+                    { name: "time", value: appointment.AppStartTime }
+                ]
+            };
+
+            const whatsappResponse = await fetch(`${WATI_API_URL}?whatsappNumber=91${patientPhone}`, {
+                method: "POST",
+                headers: {
+                    "Authorization": WATI_API_KEY,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await whatsappResponse.json();
+            if (!whatsappResponse.ok) {
+                console.error("Failed to send WhatsApp message:", data);
+            }
+        }
+
+        res.status(200).json({ message: "Appointment cancelled and refund initiated.", refund });
     } catch (error) {
-      console.error("Refund error:", error);
-      res.status(500).json({ message: "Error processing refund", error: error.message });
+        console.error("Refund error:", error);
+        res.status(500).json({ message: "Error processing refund", error: error.message });
     }
-  });
+});
+
+AppointmentRoute.post("/autoCancelUnstartedAppointments", async (req, res) => {
+    try {
+        const now = new Date();
+
+        const appointments = await AppointmentRecordsSchema.find({
+            appointment_status: "scheduled",
+            payment_status: "confirmed",
+            session_started: false
+        });
+
+        const cancelled = [];
+
+        for (const appt of appointments) {
+            const appointmentDate = new Date(appt.DateOfAppointment);
+            const [hours, minutes] = appt.AppStartTime.split(":").map(Number);
+            appointmentDate.setHours(hours, minutes, 0, 0);
+
+            const deadline = new Date(appointmentDate.getTime() + 20 * 60 * 1000);
+
+            if (now > deadline) {
+                try {
+                    const refund = await InitiateRefund(appt.payment_id);
+
+                    appt.appointment_status = "cancelled";
+                    appt.payment_status = "refunded";
+                    appt.refund_id = refund.id;
+                    appt.cancellation_reason = "Auto-cancelled: Doctor did not start session";
+                    await appt.save();
+
+                    // ✅ Send WhatsApp refund message
+                    const patientPhone = appt.patientPhoneNumber;
+                    const patientName = appt.patientName;
+                    const doctor = await DoctorSchema.findById(appt.doctor_id);
+
+                    if (patientPhone && doctor) {
+                        const formattedDate = new Date(appt.DateOfAppointment).toLocaleDateString("en-IN", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric"
+                        });
+
+                        const payload = {
+                            template_name: "payment_refund",
+                            broadcast_name: "Auto_Cancelled_Refund",
+                            parameters: [
+                                { name: "patient_name", value: patientName },
+                                { name: "doctor_name", value: doctor.Name },
+                                { name: "date", value: formattedDate },
+                                { name: "time", value: appt.AppStartTime }
+                            ]
+                        };
+
+                        const whatsappResponse = await fetch(`${WATI_API_URL}?whatsappNumber=91${patientPhone}`, {
+                            method: "POST",
+                            headers: {
+                                "Authorization": WATI_API_KEY,
+                                "Content-Type": "application/json"
+                            },
+                            body: JSON.stringify(payload)
+                        });
+
+                        const data = await whatsappResponse.json();
+                        if (!whatsappResponse.ok) {
+                            console.error("❌ Failed to send WhatsApp message:", data);
+                        }
+                    }
+
+                    cancelled.push(appt._id);
+                } catch (err) {
+                    console.error(`❌ Refund failed for appointment ${appt._id}`, err.message);
+                }
+            }
+        }
+
+        res.status(200).json({
+            message: `✅ Auto-cancel check completed.`,
+            totalChecked: appointments.length,
+            cancelledAppointments: cancelled
+        });
+
+    } catch (error) {
+        console.error("❌ Error in auto-cancel logic:", error);
+        res.status(500).json({ message: "Server error", error: error.message });
+    }
+});
 
 module.exports = AppointmentRoute;
 

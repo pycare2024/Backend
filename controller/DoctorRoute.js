@@ -4,6 +4,9 @@ const DoctorRoute = express.Router();
 const DoctorAccountsSchema = require("../model/DoctorAccountsSchema");
 const DoctorTransactionsSchema = require("../model/DoctorTransactionsSchema");
 
+const WATI_API_URL = "https://live-mt-server.wati.io/387357/api/v2/sendTemplateMessage";
+const WATI_API_KEY = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhZmY3OWIzZC0wY2FjLTRlMjEtOThmZC1hNTExNGQyYzBlOTEiLCJ1bmlxdWVfbmFtZSI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsIm5hbWVpZCI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsImVtYWlsIjoiY29udGFjdHVzQHBzeS1jYXJlLmluIiwiYXV0aF90aW1lIjoiMDEvMDEvMjAyNSAwNTo0NzoxOCIsInRlbmFudF9pZCI6IjM4NzM1NyIsImRiX25hbWUiOiJtdC1wcm9kLVRlbmFudHMiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBRE1JTklTVFJBVE9SIiwiZXhwIjoyNTM0MDIzMDA4MDAsImlzcyI6IkNsYXJlX0FJIiwiYXVkIjoiQ2xhcmVfQUkifQ.e4BgIPZN_WI1RU4VkLoyBAndhzW8uKntWnhr4K-J9K0"; // Replace with actual token
+
 // Fetch all doctors
 DoctorRoute.get("/", (req, res) => {
     DoctorSchema.find((err, data) => {
@@ -78,8 +81,6 @@ DoctorRoute.post("/verifyCredentials",async(req,res)=>{
     }
 });
 
-
-// Reset password
 DoctorRoute.post("/resetPassword", async (req, res) => {
     const { loginId, newPassword } = req.body;
 
@@ -90,12 +91,42 @@ DoctorRoute.post("/resetPassword", async (req, res) => {
             { new: true }
         );
 
-        if (doctor) {
-            return res.json({ success: true, message: "Password reset successfully" });
-        } else {
+        if (!doctor) {
             return res.status(404).json({ success: false, message: "Doctor not found" });
         }
+
+        // ✅ Send WhatsApp Notification via WATI
+        const patientPhone = doctor.Mobile;
+        const patientName = doctor.Name;
+
+        if (patientPhone && patientName) {
+            const payload = {
+                template_name: "resetpassworddoc",
+                broadcast_name: "Doctor_Reset_Password",
+                parameters: [
+                    { name: "name", value: patientName }
+                ]
+            };
+
+            const whatsappResponse = await fetch(`${WATI_API_URL}?whatsappNumber=91${patientPhone}`, {
+                method: "POST",
+                headers: {
+                    "Authorization": WATI_API_KEY,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await whatsappResponse.json();
+            if (!whatsappResponse.ok) {
+                console.error("❌ Failed to send WhatsApp message:", data);
+            }
+        }
+
+        return res.json({ success: true, message: "Password reset successfully" });
+
     } catch (error) {
+        console.error("❌ Error resetting password:", error);
         return res.status(500).json({ success: false, message: "Server error" });
     }
 });

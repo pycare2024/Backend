@@ -5,15 +5,12 @@ const { collection } = require("./AdminSchema");
 const DoctorSchema=mongoose.Schema({
     "id":{type:String},
     "Name":{type:String},
-    "Age":{type:Number},
-    "Pincode":{type:Number},
     "City":{type:String},
     "Qualification":{type:String},
     "loginId":{type:String},
     "password":{type:String},
     "Gender":{type:String},
     "Mobile":{type:Number},
-    "dob":{type:Date}
 },{
     collection:"Doctors"
 })

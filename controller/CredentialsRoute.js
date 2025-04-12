@@ -20,7 +20,7 @@ CredentialsRoute.post("/send-credentials", async (req, res) => {
                 "Content-Type": "application/json"
             },
             body: JSON.stringify({
-                template_name: "doctorscredentials", // Use your actual WATI template name
+                template_name: "details", // Use your actual WATI template name
                 broadcast_name: "REGS",
                 parameters: [
                     { name: "name", value: name },

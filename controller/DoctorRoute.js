@@ -100,11 +100,13 @@ DoctorRoute.post("/resetPassword", async (req, res) => {
     }
 });
 
-DoctorRoute.post("/register", async (req, res) => {
-    const { id, Name, Age, Pincode, City, Qualification, loginId, password, Gender, Mobile, dob } = req.body;
+DoctorRoute.post("/register", async (req, res) => 
+    {
+
+    const { id, Name, City, Qualification, loginId, password, Gender, Mobile} = req.body;
 
     // Check if all required fields are provided
-    if (!id || !Name || !Age || !Pincode || !City || !Qualification || !loginId || !password || !Gender || !Mobile || !dob) {
+    if (!id || !Name ||  !City || !Qualification || !loginId || !password || !Gender || !Mobile) {
         return res.status(400).json({ success: false, message: "All fields are required" });
     }
 
@@ -119,15 +121,12 @@ DoctorRoute.post("/register", async (req, res) => {
         const newDoctor = new DoctorSchema({
             id,
             Name,
-            Age,
-            Pincode,
             City,
             Qualification,
             loginId,
             password, // Save hashed password
             Gender,
             Mobile,
-            dob
         });
 
         await newDoctor.save();

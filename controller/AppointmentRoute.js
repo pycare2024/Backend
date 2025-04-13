@@ -905,8 +905,6 @@ AppointmentRoute.post("/autoCancelUnstartedAppointments", async (req, res) => {
 
             const deadline = new Date(appointmentDate.getTime() + 20 * 60000);
 
-            console.log(`Checking appointment ${appt._id} — Deadline: ${deadline}, Now IST: ${nowIST}`);
-
             if (nowIST > deadline) {
                 try {
                     const refund = await InitiateRefund(appt.payment_id);

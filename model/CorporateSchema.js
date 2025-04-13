@@ -5,11 +5,19 @@ const CorporateSchema = new mongoose.Schema({
   contactPerson: { type: String, required: true },
   email: { type: String, required: true },
   phone: { type: String, required: true },
-  companyCode: { type: String, unique: true, required: true }, // auto-generated
-  empIdFormat: { type: String, required: true }, // ✅ New field added
+  companyCode: { type: String, unique: true, required: true },
+  empIdFormat: { type: String, required: true },
   registeredDate: { type: Date, default: Date.now },
   active: { type: Boolean, default: true },
-  associatedPatients: [{ type: mongoose.Schema.Types.ObjectId, ref: "Patient" }]
+  associatedPatients: [{
+    empId: { type: String, required: true },
+    employeePhone: { type: String, required: true },
+    familyMembers: [{
+      name: { type: String, required: true },
+      mobile: { type: String, required: true },
+      relation: { type: String, required: true }
+    }]
+  }]
 }, {
   collection: "Corporates"
 });

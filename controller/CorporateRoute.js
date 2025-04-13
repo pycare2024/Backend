@@ -18,21 +18,17 @@ CompanyRoute.post("/register", async (req, res) => {
   try {
     const { companyName, contactPerson, email, phone, empIdFormat } = req.body;
 
-    // ✅ Validate all required fields
     if (!companyName || !contactPerson || !email || !phone || !empIdFormat) {
       return res.status(400).json({ message: "All fields are required." });
     }
 
-    // ✅ Check for duplicates by email
     const existingCompany = await Corporate.findOne({ email });
     if (existingCompany) {
       return res.status(409).json({ message: "Company with this email already exists." });
     }
 
-    // ✅ Generate company code from name
     const companyCode = generateCompanyCode(companyName);
 
-    // ✅ Create new company record
     const newCompany = new Corporate({
       companyName,
       contactPerson,
@@ -40,7 +36,7 @@ CompanyRoute.post("/register", async (req, res) => {
       phone,
       empIdFormat,
       companyCode,
-      associatedPatients: [] // always initialize
+      associatedPatients: [] // ✅ empty initially
     });
 
     await newCompany.save();

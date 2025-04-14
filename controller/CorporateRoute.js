@@ -2,6 +2,12 @@ const express = require("express");
 const CorporateRoute = express.Router();
 const patientSchema = require("../model/patientSchema");
 const Corporate = require("../model/CorporateSchema");
+const razorpay = require("../razorpay");
+const crypto = require("crypto");
+
+const WATI_API_URL = "https://live-mt-server.wati.io/387357/api/v2/sendTemplateMessage";
+const WATI_API_KEY = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhZmY3OWIzZC0wY2FjLTRlMjEtOThmZC1hNTExNGQyYzBlOTEiLCJ1bmlxdWVfbmFtZSI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsIm5hbWVpZCI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsImVtYWlsIjoiY29udGFjdHVzQHBzeS1jYXJlLmluIiwiYXV0aF90aW1lIjoiMDEvMDEvMjAyNSAwNTo0NzoxOCIsInRlbmFudF9pZCI6IjM4NzM1NyIsImRiX25hbWUiOiJtdC1wcm9kLVRlbmFudHMiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBRE1JTklTVFJBVE9SIiwiZXhwIjoyNTM0MDIzMDA4MDAsImlzcyI6IkNsYXJlX0FJIiwiYXVkIjoiQ2xhcmVfQUkifQ.e4BgIPZN_WI1RU4VkLoyBAndhzW8uKntWnhr4K-J9K0"; // Replace with actual token
+
 
 // Utility to generate a unique company code from the company name
 function generateCompanyCode(name) {
@@ -37,7 +43,8 @@ CorporateRoute.post("/register", async (req, res) => {
       phone,
       empIdFormat,
       companyCode,
-      associatedPatients: [] // ✅ empty initially
+      associatedPatients: [], // ✅ empty initially
+      rechargeHistory:[]
     });
 
     await newCompany.save();
@@ -192,6 +199,114 @@ CorporateRoute.post("/registerFamilyMember", async (req, res) => {
   } catch (error) {
     console.error("Register family member error:", error.message);
     res.status(500).json({ message: "Server error. Try again." });
+  }
+});
+
+CorporateRoute.post("/rechargeCredits", async (req, res) => {
+  try {
+    const { companyCode, credits, amount } = req.body;
+
+    const company = await Corporate.findOne({ companyCode });
+    if (!company) {
+      return res.status(404).json({ message: "Company not found" });
+    }
+
+    // Generate Razorpay Payment Link
+    const paymentLinkResponse = await razorpay.paymentLink.create({
+      amount: amount * 100, // ₹ to paise
+      currency: "INR",
+      accept_partial: false,
+      description: `${credits} Credit Recharge for ${company.companyName}`,
+      notify: { sms: true, email: false },
+      reference_id: `recharge_${companyCode}_${Date.now()}`,
+      notes: {
+        companyCode,
+        credits
+      }
+    });
+
+    const paymentLink = paymentLinkResponse.short_url;
+    const paymentLinkId = paymentLinkResponse.id;
+
+    // ✅ Send WhatsApp notification to company contact
+    await fetch(`${WATI_API_URL}?whatsappNumber=91${company.phone}`, {
+      method: "POST",
+      headers: {
+        Authorization: WATI_API_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        template_name: "corporate_recharge",
+        broadcast_name: "RechargeBroadcast",
+        parameters: [
+          { name: "1", value: company.contactPerson },
+          { name: "2", value: credits.toString() },
+          { name: "3", value: `₹${amount}` },
+          { name: "4", value: paymentLink }
+        ]
+      })
+    });
+
+    res.status(200).json({
+      message: "Payment link generated and sent",
+      paymentLink,
+      paymentLinkId
+    });
+
+  } catch (err) {
+    console.error("Recharge error:", err.message);
+    res.status(500).json({ message: "Recharge failed", error: err.message });
+  }
+});
+
+CorporateRoute.post("/corporate-recharge-webhook", express.json(), async (req, res) => {
+  try {
+    const webhookSecret = "credits@2025PsyCare";
+    const receivedSignature = req.headers["x-razorpay-signature"];
+    const body = JSON.stringify(req.body);
+
+    const expectedSignature = crypto
+      .createHmac("sha256", webhookSecret)
+      .update(body)
+      .digest("hex");
+
+    if (expectedSignature !== receivedSignature) {
+      return res.status(400).json({ message: "Invalid signature" });
+    }
+
+    const { event, payload } = req.body;
+
+    if (event === "payment.captured") {
+      const payment = payload.payment.entity;
+      const notes = payment.notes;
+      const { companyCode, credits } = notes;
+
+      if (!companyCode || !credits) {
+        return res.status(400).json({ message: "Missing company code or credit value" });
+      }
+
+      const company = await Corporate.findOne({ companyCode });
+      if (!company) {
+        return res.status(404).json({ message: "Company not found" });
+      }
+
+      // ✅ Update company credits and record recharge
+      company.totalCredits += parseInt(credits);
+      company.rechargeHistory.push({
+        credits: parseInt(credits),
+        amount: payment.amount / 100,
+        paymentId: payment.id
+      });
+
+      await company.save();
+
+      return res.status(200).json({ message: "Recharge recorded successfully" });
+    }
+
+    res.status(200).json({ message: "Webhook received" });
+  } catch (err) {
+    console.error("Webhook error:", err.message);
+    res.status(500).json({ message: "Webhook failed", error: err.message });
   }
 });
 

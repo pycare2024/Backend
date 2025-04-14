@@ -9,6 +9,15 @@ const CorporateSchema = new mongoose.Schema({
   empIdFormat: { type: String, required: true },
   registeredDate: { type: Date, default: Date.now },
   active: { type: Boolean, default: true },
+  totalCredits: { type: Number, default: 0 },
+  rechargeHistory: [
+    {
+      credits: { type: Number, required: true },
+      amount: { type: Number, required: true },
+      paymentId: { type: String },
+      date: { type: Date, default: Date.now }
+    }
+  ],
   associatedPatients: [{
     empId: { type: String, required: true },
     employeePhone: { type: String, required: true },

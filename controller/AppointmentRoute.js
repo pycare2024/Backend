@@ -173,207 +173,215 @@ AppointmentRoute.get('/availableDates', async (req, res) => {
 
 AppointmentRoute.post("/bookAppointment", async (req, res) => {
     try {
-      const { selectedDate, patient_id, preferredTime, userType, empId, companyCode } = req.body;
-  
-      if (!selectedDate || !patient_id || !preferredTime) {
-        return res.status(400).json({ message: "All fields are required." });
-      }
-  
-      const appointmentDate = new Date(selectedDate);
-      if (isNaN(appointmentDate)) return res.status(400).json({ message: "Invalid date format." });
-  
-      const existingAppointment = await AppointmentRecordsSchema.findOne({
-        patient_id,
-        DateOfAppointment: appointmentDate,
-      });
-      if (existingAppointment) {
-        return res.status(409).json({
-          message: "You already have an appointment booked for this date.",
-          appointmentDetails: existingAppointment,
-        });
-      }
-  
-      let timeFilter = {};
-      if (preferredTime === "morning") timeFilter = { "Slots.startTime": { $gte: "09:00", $lt: "12:00" } };
-      else if (preferredTime === "afternoon") timeFilter = { "Slots.startTime": { $gte: "12:00", $lt: "16:00" } };
-      else if (preferredTime === "evening") timeFilter = { "Slots.startTime": { $gte: "16:00", $lt: "21:00" } };
-      else return res.status(400).json({ message: "Invalid preferredTime." });
-  
-      const availableDoctors = await DoctorScheduleSchema.find({
-        Date: appointmentDate,
-        SlotsAvailable: { $gt: 0 },
-        "Slots.isBooked": false,
-        ...timeFilter,
-      }).sort({ doctor_id: 1 });
-  
-      if (!availableDoctors.length) return res.status(404).json({ message: "No doctors available." });
-  
-      let earliestSlotTime = null;
-      availableDoctors.forEach(doc => {
-        const slot = doc.Slots.find(s => !s.isBooked);
-        if (slot && (!earliestSlotTime || slot.startTime < earliestSlotTime)) {
-          earliestSlotTime = slot.startTime;
+        const { selectedDate, patient_id, preferredTime, userType, empId, companyCode } = req.body;
+
+        if (!selectedDate || !patient_id || !preferredTime) {
+            return res.status(400).json({ message: "All fields are required." });
         }
-      });
-  
-      const doctorsWithEarliest = availableDoctors.filter(doc =>
-        doc.Slots.some(s => !s.isBooked && s.startTime === earliestSlotTime)
-      );
-  
-      const lastAssignment = await DoctorsAssignmentPrioritySchema.findOne({ Date: appointmentDate });
-      let selectedDoctor;
-      if (!lastAssignment) {
-        selectedDoctor = doctorsWithEarliest[0];
-        await DoctorsAssignmentPrioritySchema.create({
-          Date: appointmentDate,
-          LastDoctorAssigned: selectedDoctor.doctor_id,
+
+        const appointmentDate = new Date(selectedDate);
+        if (isNaN(appointmentDate)) return res.status(400).json({ message: "Invalid date format." });
+
+        const existingAppointment = await AppointmentRecordsSchema.findOne({
+            patient_id,
+            DateOfAppointment: appointmentDate,
         });
-      } else {
-        const idx = doctorsWithEarliest.findIndex(doc =>
-          doc.doctor_id.toString() === lastAssignment.LastDoctorAssigned.toString()
+        if (existingAppointment) {
+            return res.status(409).json({
+                message: "You already have an appointment booked for this date.",
+                appointmentDetails: existingAppointment,
+            });
+        }
+
+        let timeFilter = {};
+        if (preferredTime === "morning") timeFilter = { "Slots.startTime": { $gte: "09:00", $lt: "12:00" } };
+        else if (preferredTime === "afternoon") timeFilter = { "Slots.startTime": { $gte: "12:00", $lt: "16:00" } };
+        else if (preferredTime === "evening") timeFilter = { "Slots.startTime": { $gte: "16:00", $lt: "21:00" } };
+        else return res.status(400).json({ message: "Invalid preferredTime." });
+
+        const availableDoctors = await DoctorScheduleSchema.find({
+            Date: appointmentDate,
+            SlotsAvailable: { $gt: 0 },
+            "Slots.isBooked": false,
+            ...timeFilter,
+        }).sort({ doctor_id: 1 });
+
+        if (!availableDoctors.length) return res.status(404).json({ message: "No doctors available." });
+
+        let earliestSlotTime = null;
+        availableDoctors.forEach(doc => {
+            const slot = doc.Slots.find(s => !s.isBooked);
+            if (slot && (!earliestSlotTime || slot.startTime < earliestSlotTime)) {
+                earliestSlotTime = slot.startTime;
+            }
+        });
+
+        const doctorsWithEarliest = availableDoctors.filter(doc =>
+            doc.Slots.some(s => !s.isBooked && s.startTime === earliestSlotTime)
         );
-        selectedDoctor =
-          idx === -1 || idx === doctorsWithEarliest.length - 1
-            ? doctorsWithEarliest[0]
-            : doctorsWithEarliest[idx + 1];
-        await DoctorsAssignmentPrioritySchema.updateOne(
-          { Date: appointmentDate },
-          { $set: { LastDoctorAssigned: selectedDoctor.doctor_id } }
-        );
-      }
-  
-      const selectedSlot = selectedDoctor.Slots.find(s => !s.isBooked && s.startTime === earliestSlotTime);
-      if (!selectedSlot) return res.status(500).json({ message: "No available slot found." });
-  
-      const patient = await patientSchema.findById(patient_id);
-      if (!patient) return res.status(404).json({ message: "Patient not found." });
-  
-      const appointmentData = {
-        patient_id,
-        patientName: patient.Name,
-        patientPhoneNumber: patient.Mobile,
-        doctorScheduleId: selectedDoctor._id,
-        doctor_id: selectedDoctor.doctor_id,
-        DateOfAppointment: appointmentDate,
-        AppStartTime: selectedSlot.startTime,
-        AppEndTime: selectedSlot.endTime,
-        WeekDay: selectedDoctor.WeekDay,
-        payment_status: userType === "corporate" ? "confirmed" : "pending",
-        userType,
-        empId: userType === "corporate" ? empId : undefined,
-        companyCode: userType === "corporate" ? companyCode : undefined,
-      };
-  
-      const savedAppointment = await new AppointmentRecordsSchema(appointmentData).save();
-  
-      const doctor = await DoctorSchema.findById(selectedDoctor.doctor_id);
-      const patientName = patient.Name;
-      const phone = patient.Mobile;
-      const DofAppt = appointmentData.DateOfAppointment.toDateString();
-      const apptTime = appointmentData.AppStartTime;
-      const DoctorName = doctor?.Name || "Doctor";
-      const clinicName = "PsyCare";
-  
-      if (userType === "corporate") {
-        // ✅ Mark slot booked now
-        await DoctorScheduleSchema.updateOne(
-          {
-            _id: selectedDoctor._id,
-            "Slots.startTime": selectedSlot.startTime,
-            "Slots.isBooked": false
-          },
-          {
-            $set: {
-              "Slots.$.isBooked": true,
-              "Slots.$.bookedBy": patient_id
-            },
-            $inc: { SlotsAvailable: -1 }
-          }
-        );
-  
-        // ✅ Send WhatsApp confirmation to corporate user
-        if (phone) {
-          await fetch(`${WATI_API_URL}?whatsappNumber=91${phone}`, {
-            method: "POST",
-            headers: {
-              Authorization: WATI_API_KEY,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              template_name: "appointment_details",
-              broadcast_name: "CorporateAppointmentConfirm",
-              parameters: [
-                { name: "name", value: patientName },
-                { name: "appointment_date", value: DofAppt },
-                { name: "appointment_time", value: apptTime },
-                { name: "doctor_name", value: DoctorName },
-                { name: "clinic_name", value: clinicName },
-                { name: "payment_id", value: "Corporate Package" },
+
+        const lastAssignment = await DoctorsAssignmentPrioritySchema.findOne({ Date: appointmentDate });
+        let selectedDoctor;
+        if (!lastAssignment) {
+            selectedDoctor = doctorsWithEarliest[0];
+            await DoctorsAssignmentPrioritySchema.create({
+                Date: appointmentDate,
+                LastDoctorAssigned: selectedDoctor.doctor_id,
+            });
+        } else {
+            const idx = doctorsWithEarliest.findIndex(doc =>
+                doc.doctor_id.toString() === lastAssignment.LastDoctorAssigned.toString()
+            );
+            selectedDoctor =
+                idx === -1 || idx === doctorsWithEarliest.length - 1
+                    ? doctorsWithEarliest[0]
+                    : doctorsWithEarliest[idx + 1];
+            await DoctorsAssignmentPrioritySchema.updateOne(
+                { Date: appointmentDate },
+                { $set: { LastDoctorAssigned: selectedDoctor.doctor_id } }
+            );
+        }
+
+        const selectedSlot = selectedDoctor.Slots.find(s => !s.isBooked && s.startTime === earliestSlotTime);
+        if (!selectedSlot) return res.status(500).json({ message: "No available slot found." });
+
+        const patient = await patientSchema.findById(patient_id);
+        if (!patient) return res.status(404).json({ message: "Patient not found." });
+
+        const appointmentData = {
+            patient_id,
+            patientName: patient.Name,
+            patientPhoneNumber: patient.Mobile,
+            doctorScheduleId: selectedDoctor._id,
+            doctor_id: selectedDoctor.doctor_id,
+            DateOfAppointment: appointmentDate,
+            AppStartTime: selectedSlot.startTime,
+            AppEndTime: selectedSlot.endTime,
+            WeekDay: selectedDoctor.WeekDay,
+            payment_status: userType === "corporate" ? "confirmed" : "pending",
+            userType,
+            empId: userType === "corporate" ? empId : undefined,
+            companyCode: userType === "corporate" ? companyCode : undefined,
+        };
+
+        const savedAppointment = await new AppointmentRecordsSchema(appointmentData).save();
+
+        const doctor = await DoctorSchema.findById(selectedDoctor.doctor_id);
+        const patientName = patient.Name;
+        const phone = patient.Mobile;
+        const DofAppt = appointmentData.DateOfAppointment.toDateString();
+        const apptTime = appointmentData.AppStartTime;
+        const DoctorName = doctor?.Name || "Doctor";
+        const clinicName = "PsyCare";
+
+        if (userType === "corporate") {
+
+            const company = await Corporate.findOne({ companyCode });
+            if (!company || company.totalCredits <= 0) {
+                return res.status(403).json({ message: "Insufficient credits in company account." });
+            }
+
+            company.totalCredits -= 1;
+            await company.save();
+            // ✅ Mark slot booked now
+            await DoctorScheduleSchema.updateOne(
                 {
-                  name: "link",
-                  value: "Your appointment has been confirmed and covered under your company’s package. No payment is required. ✅"
+                    _id: selectedDoctor._id,
+                    "Slots.startTime": selectedSlot.startTime,
+                    "Slots.isBooked": false
+                },
+                {
+                    $set: {
+                        "Slots.$.isBooked": true,
+                        "Slots.$.bookedBy": patient_id
+                    },
+                    $inc: { SlotsAvailable: -1 }
                 }
-              ]
-            })
-          });
+            );
+
+            // ✅ Send WhatsApp confirmation to corporate user
+            if (phone) {
+                await fetch(`${WATI_API_URL}?whatsappNumber=91${phone}`, {
+                    method: "POST",
+                    headers: {
+                        Authorization: WATI_API_KEY,
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        template_name: "appointment_details",
+                        broadcast_name: "CorporateAppointmentConfirm",
+                        parameters: [
+                            { name: "name", value: patientName },
+                            { name: "appointment_date", value: DofAppt },
+                            { name: "appointment_time", value: apptTime },
+                            { name: "doctor_name", value: DoctorName },
+                            { name: "clinic_name", value: clinicName },
+                            { name: "payment_id", value: "Corporate Package" },
+                            {
+                                name: "link",
+                                value: "Your appointment has been confirmed and covered under your company’s package. No payment is required. ✅"
+                            }
+                        ]
+                    })
+                });
+            }
+
+            return res.status(200).json({
+                message: "Appointment booked successfully (corporate).",
+                appointmentDetails: savedAppointment,
+                doctorName: doctor?.Name,
+            });
         }
-  
+
+        // ✅ For RETAIL: Generate Payment Link
+        const paymentLinkResponse = await razorpay.paymentLink.create({
+            amount: 100,
+            currency: "INR",
+            accept_partial: false,
+            description: "Appointment Booking Fee",
+            notify: { sms: true },
+            reference_id: `appointment_${savedAppointment._id}`,
+            notes: { appointment_id: savedAppointment._id.toString(), patient_id },
+        });
+
+        await AppointmentRecordsSchema.updateOne(
+            { _id: savedAppointment._id },
+            { $set: { payment_link_id: paymentLinkResponse.id } }
+        );
+
+        // ✅ Send Razorpay link on WhatsApp
+        const uniquePaymentCode = paymentLinkResponse.short_url.split("/").pop();
+        if (phone) {
+            await fetch(`${WATI_API_URL}?whatsappNumber=91${phone}`, {
+                method: "POST",
+                headers: {
+                    Authorization: WATI_API_KEY,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    template_name: "payment_link",
+                    broadcast_name: "PaymentLinkBroadcast",
+                    parameters: [
+                        { name: "1", value: patientName },
+                        { name: "2", value: uniquePaymentCode }
+                    ]
+                }),
+            });
+        }
+
         return res.status(200).json({
-          message: "Appointment booked successfully (corporate).",
-          appointmentDetails: savedAppointment,
-          doctorName: doctor?.Name,
+            message: "Appointment booked (retail, pending payment).",
+            appointmentDetails: savedAppointment,
+            doctorName: doctor?.Name,
+            paymentLink: paymentLinkResponse.short_url,
         });
-      }
-  
-      // ✅ For RETAIL: Generate Payment Link
-      const paymentLinkResponse = await razorpay.paymentLink.create({
-        amount: 100,
-        currency: "INR",
-        accept_partial: false,
-        description: "Appointment Booking Fee",
-        notify: { sms: true },
-        reference_id: `appointment_${savedAppointment._id}`,
-        notes: { appointment_id: savedAppointment._id.toString(), patient_id },
-      });
-  
-      await AppointmentRecordsSchema.updateOne(
-        { _id: savedAppointment._id },
-        { $set: { payment_link_id: paymentLinkResponse.id } }
-      );
-  
-      // ✅ Send Razorpay link on WhatsApp
-      const uniquePaymentCode = paymentLinkResponse.short_url.split("/").pop();
-      if (phone) {
-        await fetch(`${WATI_API_URL}?whatsappNumber=91${phone}`, {
-          method: "POST",
-          headers: {
-            Authorization: WATI_API_KEY,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            template_name: "payment_link",
-            broadcast_name: "PaymentLinkBroadcast",
-            parameters: [
-              { name: "1", value: patientName },
-              { name: "2", value: uniquePaymentCode }
-            ]
-          }),
-        });
-      }
-  
-      return res.status(200).json({
-        message: "Appointment booked (retail, pending payment).",
-        appointmentDetails: savedAppointment,
-        doctorName: doctor?.Name,
-        paymentLink: paymentLinkResponse.short_url,
-      });
-  
+
     } catch (err) {
-      console.error("Error booking appointment:", err);
-      return res.status(500).json({ message: "Booking failed.", error: err.message });
+        console.error("Error booking appointment:", err);
+        return res.status(500).json({ message: "Booking failed.", error: err.message });
     }
-  });
-  
+});
+
 
 AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
     try {

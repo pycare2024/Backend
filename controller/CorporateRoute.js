@@ -88,6 +88,55 @@ CorporateRoute.post("/verifyCorporatePatient", async (req, res) => {
   }
 });
 
+CorporateRoute.post("/registerCorporateEmployee", async (req, res) => {
+  const { Name, Age, Gender, Location, Mobile, Problem, empId, companyCode } = req.body;
+
+  if (!Name || !Age || !Gender || !Location || !Mobile || !Problem || !empId || !companyCode) {
+    return res.status(400).json({ error: "All fields are required." });
+  }
+
+  try {
+    // 1. Save the patient into the patient collection
+    const newPatient = new patientSchema({
+      Name,
+      Age,
+      Gender,
+      Location,
+      Mobile,
+      Problem
+    });
+
+    await newPatient.save();
+
+    // 2. Update the Corporate document to add this employee
+    const updated = await Corporate.updateOne(
+      { companyCode },
+      {
+        $push: {
+          associatedPatients: {
+            empId,
+            employeePhone: Mobile,
+            familyMembers: []
+          }
+        }
+      }
+    );
+
+    if (updated.modifiedCount === 0) {
+      return res.status(404).json({ error: "Company not found." });
+    }
+
+    return res.status(201).json({
+      message: "Corporate employee registered successfully",
+      patientId: newPatient._id
+    });
+
+  } catch (err) {
+    console.error("❌ Error registering corporate employee:", err.message);
+    return res.status(500).json({ error: "Server error. Please try again later." });
+  }
+});
+
 CorporateRoute.post("/registerFamilyMember", async (req, res) => {
   try {
     const {

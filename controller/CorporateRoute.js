@@ -70,9 +70,16 @@ CorporateRoute.post("/verifyCorporatePatient", async (req, res) => {
     const employee = company.associatedPatients.find(p => p.empId === empId);
 
     if (employee) {
-      return res.status(200).json({ exists: true, message: "Employee exists in our records." });
+      return res.status(200).json({
+        exists: true,
+        message: "Employee exists in our records.",
+        employee // ✅ Include the full employee object
+      });
     } else {
-      return res.status(200).json({ exists: false, message: "Employee not found. Proceed to registration." });
+      return res.status(200).json({
+        exists: false,
+        message: "Employee not found. Proceed to registration."
+      });
     }
 
   } catch (error) {
@@ -81,52 +88,61 @@ CorporateRoute.post("/verifyCorporatePatient", async (req, res) => {
   }
 });
 
-CorporateRoute.post("/registerCorporateEmployee", async (req, res) => {
-  const { Name, Age, Gender, Location, Mobile, Problem, empId, companyCode } = req.body;
-
-  if (!Name || !Age || !Gender || !Location || !Mobile || !Problem || !empId || !companyCode) {
-    return res.status(400).json({ error: "All fields are required." });
-  }
-
+CorporateRoute.post("/registerFamilyMember", async (req, res) => {
   try {
-    // 1. Save the patient into the patient collection
+    const {
+      empId,
+      companyCode,
+      name,
+      mobile,
+      relation,
+      age,
+      gender,
+      location,
+      problem
+    } = req.body;
+
+    if (!empId || !companyCode || !name || !mobile || !relation || !age || !gender || !location || !problem) {
+      return res.status(400).json({ message: "All fields are required." });
+    }
+
+    const company = await Corporate.findOne({ companyCode });
+    if (!company) {
+      return res.status(404).json({ message: "Company not found." });
+    }
+
+    const employee = company.associatedPatients.find(p => p.empId === empId);
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found in this company." });
+    }
+
+    const familyExists = employee.familyMembers.find(m => m.mobile === mobile);
+    if (familyExists) {
+      return res.status(409).json({ message: "Family member already registered." });
+    }
+
+    // ✅ Register in Patients table
     const newPatient = new patientSchema({
-      Name,
-      Age,
-      Gender,
-      Location,
-      Mobile,
-      Problem
+      Name: name,
+      Age: age,
+      Gender: gender,
+      Location: location,
+      Mobile: mobile,
+      Problem: problem
     });
 
     await newPatient.save();
 
-    // 2. Update the Corporate document to add this employee
-    const updated = await Corporate.updateOne(
-      { companyCode },
-      {
-        $push: {
-          associatedPatients: {
-            empId,
-            employeePhone: Mobile,
-            familyMembers: []
-          }
-        }
-      }
-    );
+    // ✅ Add family member to Corporate schema
+    employee.familyMembers.push({ name, mobile, relation });
 
-    if (updated.modifiedCount === 0) {
-      return res.status(404).json({ error: "Company not found." });
-    }
+    await company.save();
 
-    return res.status(201).json({
-      message: "Corporate employee registered successfully",
-      patientId: newPatient._id
-    });
+    res.status(201).json({ message: "Family member registered successfully", patientId: newPatient._id });
 
-  } catch (err) {
-    console.error("❌ Error registering corporate employee:", err.message);
-    return res.status(500).json({ error: "Server error. Please try again later." });
+  } catch (error) {
+    console.error("Register family member error:", error.message);
+    res.status(500).json({ message: "Server error. Try again." });
   }
 });
 

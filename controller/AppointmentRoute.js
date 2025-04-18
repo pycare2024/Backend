@@ -14,6 +14,7 @@ const { generateJitsiMeetingLink } = require("../JitsiHelper");
 const DoctorAccountsSchema = require("../model/DoctorAccountsSchema");
 const DoctorTransactionsSchema = require("../model/DoctorTransactionsSchema");
 const InitiateRefund = require("../Utility/InitiateRefund");
+const Corporate = require("../model/CorporateSchema");
 
 
 const WATI_API_URL = "https://live-mt-server.wati.io/387357/api/v2/sendTemplateMessage";
@@ -264,8 +265,6 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             companyCode: userType === "corporate" ? companyCode : undefined,
         };
 
-        const savedAppointment = await new AppointmentRecordsSchema(appointmentData).save();
-
         const doctor = await DoctorSchema.findById(selectedDoctor.doctor_id);
         const patientName = patient.Name;
         const phone = patient.Mobile;
@@ -275,15 +274,24 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
         const clinicName = "PsyCare";
 
         if (userType === "corporate") {
+            console.log("Corporate booking detected");
 
             const company = await Corporate.findOne({ companyCode });
-            if (!company || company.totalCredits <= 0) {
+            if (!company) return res.status(404).json({ message: "Company not found." });
+
+            if (company.totalCredits <= 0) {
                 return res.status(403).json({ message: "Insufficient credits in company account." });
             }
 
+            console.log("✅ Deducting credit for:", companyCode);
             company.totalCredits -= 1;
             await company.save();
-            // ✅ Mark slot booked now
+
+            const meetingLink = generateJitsiMeetingLink();
+            appointmentData.meeting_link = meetingLink;
+
+            const savedAppointment = await new AppointmentRecordsSchema(appointmentData).save();
+
             await DoctorScheduleSchema.updateOne(
                 {
                     _id: selectedDoctor._id,
@@ -299,7 +307,6 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
                 }
             );
 
-            // ✅ Send WhatsApp confirmation to corporate user
             if (phone) {
                 await fetch(`${WATI_API_URL}?whatsappNumber=91${phone}`, {
                     method: "POST",
@@ -327,13 +334,16 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             }
 
             return res.status(200).json({
-                message: "Appointment booked successfully (corporate).",
-                appointmentDetails: savedAppointment,
+                message: `Appointment booked successfully (corporate). Remaining credits: ${company.totalCredits}`,
+                appointmentDetails: appointmentData,
                 doctorName: doctor?.Name,
+                remainingCredits: company.totalCredits
             });
         }
 
-        // ✅ For RETAIL: Generate Payment Link
+        // RETAIL flow
+        const savedAppointment = await new AppointmentRecordsSchema(appointmentData).save();
+
         const paymentLinkResponse = await razorpay.paymentLink.create({
             amount: 100,
             currency: "INR",
@@ -349,7 +359,6 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             { $set: { payment_link_id: paymentLinkResponse.id } }
         );
 
-        // ✅ Send Razorpay link on WhatsApp
         const uniquePaymentCode = paymentLinkResponse.short_url.split("/").pop();
         if (phone) {
             await fetch(`${WATI_API_URL}?whatsappNumber=91${phone}`, {

@@ -52,32 +52,31 @@ GeminiRoute.post("/generateReport", async (req, res) => {
     }
 
     const prompt = `
-    Generate a **brief** (8-10 lines) structured mental health report based on the patient's screening scores. Use **bold formatting** with asterisks (*) to highlight key points since this report will be sent as a WhatsApp message.
-    
-    **Patient's Screening Test Scores:**
-    - *Depression (PHQ-9):* ${depression}
-    - *Anxiety (GAD-7):* ${anxiety}
-    - *Obsessive-Compulsive Disorder (Y-BOCS):* ${ocd}
-    - *Post-Traumatic Stress Disorder (PCL-5):* ${ptsd}
-    - *Sleep Issues (ISI):* ${sleep}
-    
-    **Scoring Guidelines:**
-    - *Depression:* 0-4 (Minimal), 5-9 (Mild), 10-14 (Moderate), 15-19 (Moderately Severe), 20-27 (Severe)
-    - *Anxiety:* 0-4 (Minimal), 5-9 (Mild), 10-14 (Moderate), 15-21 (Severe)
-    - *OCD:* 0-4 (Mild), 4-8 (Moderate), 9-11 (Severe), 12-15 (Extreme)
-    - *PTSD:* 11+ (Probable PTSD), 15+ (Confirmed PTSD)
-    - *Sleep Issues:* 0-6 (No issues), 7-10 (Mild), 11-14 (Moderate), 15-20 (Severe)
-    
-    **Report Format:**
-    - *Summary:* (Brief overview of the patient's mental health based on their scores)
-    - *Findings:* (Highlight key concerns based on severity)
-    - *Recommendations:* (Personalized next steps, treatment suggestions, and self-care tips)
-    
-    Keep the report short, professional,include emojis and easy to understand with important points bolded,also suggest the
-    patient at last that whether he/she should consult a psychatrist or not.
+Generate a **brief** (8-10 lines) structured mental health report based on the patient's screening scores. Use **bold formatting** with asterisks (*) to highlight key points since this report will be sent as a WhatsApp message.
 
-    please remember to not include unessacary asterisks in your response. 
-    `;
+**Patient's Screening Test Scores:**
+- *Depression (PHQ-9):* ${depression}
+- *Anxiety (GAD-7):* ${anxiety}
+- *Obsessive-Compulsive Disorder (Y-BOCS):* ${ocd}
+- *Post-Traumatic Stress Disorder (PCL-5):* ${ptsd}
+- *Sleep Issues (ISI):* ${sleep}
+
+**Scoring Guidelines:**
+- *Depression:* 0-4 (Minimal), 5-9 (Mild), 10-14 (Moderate), 15-19 (Moderately Severe), 20-27 (Severe)
+- *Anxiety:* 0-4 (Minimal), 5-9 (Mild), 10-14 (Moderate), 15-21 (Severe)
+- *OCD:* 0-7 (Subclinical), 8-15 (Mild), 16-23 (Moderate), 24-31 (Severe), 32-40 (Extreme)
+- *PTSD:* 0-32 (Not Clinically Significant), 33+ (Clinically Significant)
+- *Sleep Issues:* 0-7 (No issues), 8-14 (Subthreshold), 15-21 (Moderate), 22-28 (Severe)
+
+**Report Format:**
+- *Summary:* (Brief overview of the patient's mental health based on their scores)
+- *Findings:* (Highlight key concerns based on severity)
+- *Recommendations:* (Personalized next steps, treatment suggestions, and self-care tips)
+
+Be strict about score interpretation. If PTSD is <33, state it clearly as “not clinically significant.” Include emojis and suggest whether the patient should consult a psychiatrist.
+
+Please do not include unnecessary asterisks. 
+`;
 
     try {
         const response = await fetch(

@@ -7,13 +7,13 @@ const fetch = require("node-fetch");
 
 NewScreeningTestRoute.get("/getQuestions", async (req, res) => {
     try {
-      const questions = await ScreeningTestQuestionSchema.find().sort({ order: 1 });
-      res.status(200).json({ success: true, questions });
+        const questions = await ScreeningTestQuestionSchema.find().sort({ order: 1 });
+        res.status(200).json({ success: true, questions });
     } catch (error) {
-      console.error("Error fetching screening test questions:", error);
-      res.status(500).json({ success: false, message: "Internal server error" });
+        console.error("Error fetching screening test questions:", error);
+        res.status(500).json({ success: false, message: "Internal server error" });
     }
-  });
+});
 
 NewScreeningTestRoute.get("/", (req, res) => {
     NewScreeningTestSchema.find((err, data) => {
@@ -33,27 +33,28 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
             return res.status(400).json({ message: "Invalid patient_id" });
         }
 
-        // Convert answers to numbers
-        const responses = answers.map(Number);
-        if (responses.length !== 31 || responses.some(isNaN)) {
+        // Convert answers to numbers (1-5 input → 0-4 for scores)
+        const responses = answers.map(ans => Number(ans) - 1);
+
+        if (responses.length !== 53 || responses.some(val => isNaN(val) || val < 0 || val > 4)) {
             return res.status(400).json({
-                message: "Invalid responses format. Must be 31 numerical values.",
-                receivedResponses: responses,
+                message: "Invalid responses. Must be 53 answers, each between 1 and 5.",
+                receivedResponses: answers,
+                transformedResponses: responses
             });
         }
 
         console.log("✅ Parsed numerical responses:", responses);
 
-        // Define section ranges
+        // Updated section ranges
         const sections = {
-            depression: { start: 0, end: 8 },
-            anxiety: { start: 9, end: 15 },
-            ocd: { start: 16, end: 20 },
-            ptsd: { start: 21, end: 25 },
-            sleep: { start: 26, end: 30 },
+            depression: { start: 0, end: 8 },     // 9 questions
+            anxiety: { start: 9, end: 15 },       // 7 questions
+            ocd: { start: 43, end: 52 },          // 10 questions
+            ptsd: { start: 23, end: 42 },         // 20 questions
+            sleep: { start: 16, end: 22 }         // 7 questions
         };
 
-        // Calculate scores
         const calculateScore = (start, end) =>
             responses.slice(start, end + 1).reduce((sum, val) => sum + val, 0);
 
@@ -62,18 +63,18 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
             anxiety: calculateScore(sections.anxiety.start, sections.anxiety.end),
             ocd: calculateScore(sections.ocd.start, sections.ocd.end),
             ptsd: calculateScore(sections.ptsd.start, sections.ptsd.end),
-            sleep: calculateScore(sections.sleep.start, sections.sleep.end),
+            sleep: calculateScore(sections.sleep.start, sections.sleep.end)
         };
 
         console.log("📝 Calculated scores:", scores);
 
-        // 🔹 **Call /generateReport Route**
+        // 🔹 Generate report
         const reportResponse = await fetch(
             "https://backend-xhl4.onrender.com/GeminiRoute/generateReport",
             {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(scores),
+                body: JSON.stringify(scores)
             }
         );
 
@@ -82,25 +83,20 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
 
         console.log("📄 Generated Report:", report);
 
-        // 🔹 **Save results in the database with DateOfTest and Report**
+        // 🔹 Save results
         const assessment = new NewScreeningTestSchema({
             patient_id,
-            depression: scores.depression,
-            anxiety: scores.anxiety,
-            ocd: scores.ocd,
-            ptsd: scores.ptsd,
-            sleep: scores.sleep,
-            DateOfTest: new Date(), // Auto-generated date
-            report: report, // Store the AI-generated report
+            ...scores,
+            DateOfTest: new Date(),
+            report
         });
 
         await assessment.save();
 
-        // Send response with scores and generated report
         res.status(201).json({
             message: "Assessment submitted successfully",
             scores,
-            report, // 🔹 Report included in response
+            report
         });
 
     } catch (error) {

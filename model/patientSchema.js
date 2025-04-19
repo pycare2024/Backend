@@ -7,7 +7,7 @@ const patientSchema=new mongoose.Schema({
     "Gender":{type:String},
     "Location":{type:String},
     "Mobile":{type:Number},
-    "Problem":{type:String}
+    "Problem":{type:[String]}
 },{
     collection: "Patients"
 })

@@ -130,35 +130,33 @@ patientRoute.get("/check/:phoneNumber", async (req, res) => {
     }
 });
 
-// Register a new patient and return patient ID
 patientRoute.post("/register", async (req, res) => {
     const { Name, Age, Gender, Location, Mobile, Problem } = req.body;
-
-    if (!Name || !Age || !Gender || !Location || !Mobile || !Problem) {
-        return res.status(400).json({ error: "All fields are required" });
+  
+    if (!Name || !Age || !Gender || !Location || !Mobile || !Array.isArray(Problem) || Problem.length === 0) {
+      return res.status(400).json({ error: "All fields are required, including at least one selected problem." });
     }
-
+  
     try {
-        // Ensure that the data matches the expected fields in the schema
-        const newPatient = new patientSchema({
-            Name,
-            Age,
-            Gender,
-            Location,
-            Mobile,
-            Problem
-        });
-
-        await newPatient.save();
-        res.status(201).json({
-            message: "Patient registered successfully",
-            patientId: newPatient._id // Return the new patient's ID
-        });
+      const newPatient = new patientSchema({
+        Name,
+        Age,
+        Gender,
+        Location,
+        Mobile,
+        Problem
+      });
+  
+      await newPatient.save();
+      res.status(201).json({
+        message: "Patient registered successfully",
+        patientId: newPatient._id
+      });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Error registering patient" });
+      console.error(error);
+      res.status(500).json({ error: "Error registering patient" });
     }
-});
+  });
 
 // Fetch all records for a specific patient by patient ID
 patientRoute.get("/:id/records", async (req, res) => {

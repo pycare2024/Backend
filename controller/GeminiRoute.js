@@ -45,28 +45,44 @@ GeminiRoute.post("/ask", async (req, res) => {
 });
 
 GeminiRoute.post("/generateReport", async (req, res) => {
-    const { depression, anxiety, ocd, ptsd, sleep } = req.body;
+    const scores = req.body;
 
-    if (depression === undefined || anxiety === undefined || ocd === undefined || ptsd === undefined || sleep === undefined) {
-        return res.status(400).json({ message: "All test scores are required." });
+    if (!scores || typeof scores !== "object" || Object.keys(scores).length === 0) {
+        return res.status(400).json({ message: "At least one score is required to generate a report." });
+    }
+
+    let scoreSummary = "";
+    let scoringGuide = "";
+
+    if (scores.depression !== undefined) {
+        scoreSummary += `- *Depression (PHQ-9):* ${scores.depression}\n`;
+        scoringGuide += "- *Depression:* 0-4 (Minimal), 5-9 (Mild), 10-14 (Moderate), 15-19 (Moderately Severe), 20-27 (Severe)\n";
+    }
+    if (scores.anxiety !== undefined) {
+        scoreSummary += `- *Anxiety (GAD-7):* ${scores.anxiety}\n`;
+        scoringGuide += "- *Anxiety:* 0-4 (Minimal), 5-9 (Mild), 10-14 (Moderate), 15-21 (Severe)\n";
+    }
+    if (scores.ocd !== undefined) {
+        scoreSummary += `- *Obsessive-Compulsive Disorder (Y-BOCS):* ${scores.ocd}\n`;
+        scoringGuide += "- *OCD:* 0-7 (Subclinical), 8-15 (Mild), 16-23 (Moderate), 24-31 (Severe), 32-40 (Extreme)\n";
+    }
+    if (scores.ptsd !== undefined) {
+        scoreSummary += `- *Post-Traumatic Stress Disorder (PCL-5):* ${scores.ptsd}\n`;
+        scoringGuide += "- *PTSD:* 0-32 (Not Clinically Significant), 33+ (Clinically Significant)\n";
+    }
+    if (scores.sleep !== undefined) {
+        scoreSummary += `- *Sleep Issues (ISI):* ${scores.sleep}\n`;
+        scoringGuide += "- *Sleep Issues:* 0-7 (No issues), 8-14 (Subthreshold), 15-21 (Moderate), 22-28 (Severe)\n";
     }
 
     const prompt = `
 Generate a **brief** (8-10 lines) structured mental health report based on the patient's screening scores. Use **bold formatting** with asterisks (*) to highlight key points since this report will be sent as a WhatsApp message.
 
 **Patient's Screening Test Scores:**
-- *Depression (PHQ-9):* ${depression}
-- *Anxiety (GAD-7):* ${anxiety}
-- *Obsessive-Compulsive Disorder (Y-BOCS):* ${ocd}
-- *Post-Traumatic Stress Disorder (PCL-5):* ${ptsd}
-- *Sleep Issues (ISI):* ${sleep}
+${scoreSummary}
 
 **Scoring Guidelines:**
-- *Depression:* 0-4 (Minimal), 5-9 (Mild), 10-14 (Moderate), 15-19 (Moderately Severe), 20-27 (Severe)
-- *Anxiety:* 0-4 (Minimal), 5-9 (Mild), 10-14 (Moderate), 15-21 (Severe)
-- *OCD:* 0-7 (Subclinical), 8-15 (Mild), 16-23 (Moderate), 24-31 (Severe), 32-40 (Extreme)
-- *PTSD:* 0-32 (Not Clinically Significant), 33+ (Clinically Significant)
-- *Sleep Issues:* 0-7 (No issues), 8-14 (Subthreshold), 15-21 (Moderate), 22-28 (Severe)
+${scoringGuide}
 
 **Report Format:**
 - *Summary:* (Brief overview of the patient's mental health based on their scores)
@@ -74,8 +90,6 @@ Generate a **brief** (8-10 lines) structured mental health report based on the p
 - *Recommendations:* (Personalized next steps, treatment suggestions, and self-care tips)
 
 Be strict about score interpretation. If PTSD is <33, state it clearly as “not clinically significant.” Include emojis and suggest whether the patient should consult a psychiatrist.
-
-Please do not include unnecessary asterisks. 
 `;
 
     try {

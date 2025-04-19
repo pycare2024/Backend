@@ -27,7 +27,11 @@ NewScreeningTestRoute.get("/", (req, res) => {
 NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
     try {
         console.log("🔹 Received request body:", req.body);
-        const { patient_id, answers } = req.body;
+        const { patient_id, answers, problems, sectionCounts } = req.body;
+
+        if (!patient_id || !Array.isArray(problems) || problems.length === 0) {
+            return res.status(400).json({ message: "Missing patient_id or selected problems." });
+        }
 
         if (!mongoose.Types.ObjectId.isValid(patient_id)) {
             return res.status(400).json({ message: "Invalid patient_id" });
@@ -36,9 +40,10 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
         // Convert answers to numbers (1-5 input → 0-4 for scores)
         const responses = answers.map(ans => Number(ans) - 1);
 
-        if (responses.length !== 53 || responses.some(val => isNaN(val) || val < 0 || val > 4)) {
+        // Validate that all answers are valid numbers between 0 and 4
+        if (responses.length === 0 || responses.some(val => isNaN(val) || val < 0 || val > 4)) {
             return res.status(400).json({
-                message: "Invalid responses. Must be 53 answers, each between 1 and 5.",
+                message: "Invalid responses. All answers must be between 1 and 5.",
                 receivedResponses: answers,
                 transformedResponses: responses
             });
@@ -46,37 +51,35 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
 
         console.log("✅ Parsed numerical responses:", responses);
 
-        // Updated section ranges
-        const sections = {
-            depression: { start: 0, end: 8 },     // 9 questions
-            anxiety: { start: 9, end: 15 },       // 7 questions
-            ocd: { start: 43, end: 52 },          // 10 questions
-            ptsd: { start: 23, end: 42 },         // 20 questions
-            sleep: { start: 16, end: 22 }         // 7 questions
+        const questionCounts = {
+            depression: 9,
+            anxiety: 7,
+            sleep: 7,
+            ptsd: 20,
+            ocd: 10
         };
 
-        const calculateScore = (start, end) =>
-            responses.slice(start, end + 1).reduce((sum, val) => sum + val, 0);
+        // const calculateScore = (start, end) => responses.slice(start, end + 1).reduce((sum, val) => sum + val, 0);
 
-        const scores = {
-            depression: calculateScore(sections.depression.start, sections.depression.end),
-            anxiety: calculateScore(sections.anxiety.start, sections.anxiety.end),
-            ocd: calculateScore(sections.ocd.start, sections.ocd.end),
-            ptsd: calculateScore(sections.ptsd.start, sections.ptsd.end),
-            sleep: calculateScore(sections.sleep.start, sections.sleep.end)
-        };
+        // Only compute selected sections
+        let currentIndex = 0;
+        const scores = {};
+
+        for (const key of problems) {
+            const count = sectionCounts[key];
+            const sectionResponses = responses.slice(currentIndex, currentIndex + count);
+            scores[key] = sectionResponses.reduce((sum, val) => sum + val, 0);
+            currentIndex += count;
+        }
 
         console.log("📝 Calculated scores:", scores);
 
         // 🔹 Generate report
-        const reportResponse = await fetch(
-            "https://backend-xhl4.onrender.com/GeminiRoute/generateReport",
-            {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(scores)
-            }
-        );
+        const reportResponse = await fetch("http://localhost:4000/GeminiRoute/generateReport", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(scores) // Only selected scores will be sent
+        });
 
         const reportData = await reportResponse.json();
         const report = reportData?.report || "Error generating report.";

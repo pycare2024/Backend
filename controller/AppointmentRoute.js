@@ -207,7 +207,7 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             ...timeFilter,
         }).sort({ doctor_id: 1 });
 
-        if (!availableDoctors.length) return res.status(404).json({ message: "No doctors available." });
+        if (!availableDoctors.length) return res.status(404).json({ message: "Unfortunately, no doctors are available at the selected time. Please try another time slot or date." });
 
         let earliestSlotTime = null;
         availableDoctors.forEach(doc => {

@@ -27,7 +27,7 @@ NewScreeningTestRoute.get("/", (req, res) => {
 NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
     try {
         console.log("🔹 Received request body:", req.body);
-        const { patient_id, answers, problems, sectionCounts } = req.body;
+        const { patient_id, answers, problems, sectionCounts, patientName } = req.body;
 
         if (!patient_id || !Array.isArray(problems) || problems.length === 0) {
             return res.status(400).json({ message: "Missing patient_id or selected problems." });
@@ -37,48 +37,52 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
             return res.status(400).json({ message: "Invalid patient_id" });
         }
 
-        // Convert answers to numbers (1-5 input → 0-4 for scores)
         const responses = answers.map(ans => Number(ans) - 1);
-
-        // Validate that all answers are valid numbers between 0 and 4
         if (responses.length === 0 || responses.some(val => isNaN(val) || val < 0 || val > 4)) {
-            return res.status(400).json({
-                message: "Invalid responses. All answers must be between 1 and 5.",
-                receivedResponses: answers,
-                transformedResponses: responses
-            });
+            return res.status(400).json({ message: "Invalid responses." });
         }
 
         console.log("✅ Parsed numerical responses:", responses);
 
-        const questionCounts = {
-            depression: 9,
-            anxiety: 7,
-            sleep: 7,
-            ptsd: 20,
-            ocd: 10
+        // Map of instruments by category
+        const instrumentMap = {
+            depression: [
+                { name: "PHQ-9", count: 9 },
+                { name: "BDI-II", count: 21 }
+            ],
+            anxiety: [
+                { name: "GAD-7", count: 7 },
+                { name: "BAI", count: 21 }
+            ],
+            sleep: [
+                { name: "ISI", count: 7 }
+            ],
+            ptsd: [
+                { name: "PCL-5", count: 20 }
+            ],
+            ocd: [
+                { name: "Y-BOCS-II", count: 20 }
+            ]
         };
 
-        // const calculateScore = (start, end) => responses.slice(start, end + 1).reduce((sum, val) => sum + val, 0);
-
-        // Only compute selected sections
         let currentIndex = 0;
         const scores = {};
 
-        for (const key of problems) {
-            const count = sectionCounts[key];
-            const sectionResponses = responses.slice(currentIndex, currentIndex + count);
-            scores[key] = sectionResponses.reduce((sum, val) => sum + val, 0);
-            currentIndex += count;
+        for (const section of problems) {
+            const instruments = instrumentMap[section];
+            for (const inst of instruments) {
+                const sectionResponses = responses.slice(currentIndex, currentIndex + inst.count);
+                scores[inst.name] = sectionResponses.reduce((sum, val) => sum + val, 0);
+                currentIndex += inst.count;
+            }
         }
 
-        console.log("📝 Calculated scores:", scores);
+        console.log("📝 Per-instrument scores:", scores);
 
-        // 🔹 Generate report
         const reportResponse = await fetch("http://localhost:4000/GeminiRoute/generateReport", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(scores) // Only selected scores will be sent
+            body: JSON.stringify({ scores, patientName })
         });
 
         const reportData = await reportResponse.json();
@@ -86,10 +90,9 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
 
         console.log("📄 Generated Report:", report);
 
-        // 🔹 Save results
         const assessment = new NewScreeningTestSchema({
             patient_id,
-            ...scores,
+            scores,
             DateOfTest: new Date(),
             report
         });

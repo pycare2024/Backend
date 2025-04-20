@@ -45,7 +45,7 @@ GeminiRoute.post("/ask", async (req, res) => {
 });
 
 GeminiRoute.post("/generateReport", async (req, res) => {
-    const scores = req.body;
+    const { scores, patientName } = req.body;
 
     if (!scores || typeof scores !== "object" || Object.keys(scores).length === 0) {
         return res.status(400).json({ message: "At least one score is required to generate a report." });
@@ -54,43 +54,70 @@ GeminiRoute.post("/generateReport", async (req, res) => {
     let scoreSummary = "";
     let scoringGuide = "";
 
-    if (scores.depression !== undefined) {
-        scoreSummary += `- *Depression (PHQ-9):* ${scores.depression}\n`;
-        scoringGuide += "- *Depression:* 0-4 (Minimal), 5-9 (Mild), 10-14 (Moderate), 15-19 (Moderately Severe), 20-27 (Severe)\n";
+    // Depression
+    if (scores["PHQ-9"] !== undefined) {
+        scoreSummary += `- PHQ-9 (Depression): ${scores["PHQ-9"]}\n`;
+        scoringGuide += "- PHQ-9: 0–4 (Minimal), 5–9 (Mild), 10–14 (Moderate), 15–19 (Moderately Severe), 20–27 (Severe)\n";
     }
-    if (scores.anxiety !== undefined) {
-        scoreSummary += `- *Anxiety (GAD-7):* ${scores.anxiety}\n`;
-        scoringGuide += "- *Anxiety:* 0-4 (Minimal), 5-9 (Mild), 10-14 (Moderate), 15-21 (Severe)\n";
+    if (scores["BDI-II"] !== undefined) {
+        scoreSummary += `- BDI-II (Depression): ${scores["BDI-II"]}\n`;
+        scoringGuide += "- BDI-II: 0–13 (Minimal), 14–19 (Mild), 20–28 (Moderate), 29–63 (Severe)\n";
     }
-    if (scores.ocd !== undefined) {
-        scoreSummary += `- *Obsessive-Compulsive Disorder (Y-BOCS):* ${scores.ocd}\n`;
-        scoringGuide += "- *OCD:* 0-7 (Subclinical), 8-15 (Mild), 16-23 (Moderate), 24-31 (Severe), 32-40 (Extreme)\n";
+
+    // Anxiety
+    if (scores["GAD-7"] !== undefined) {
+        scoreSummary += `- GAD-7 (Anxiety): ${scores["GAD-7"]}\n`;
+        scoringGuide += "- GAD-7: 0–4 (Minimal), 5–9 (Mild), 10–14 (Moderate), 15–21 (Severe)\n";
     }
-    if (scores.ptsd !== undefined) {
-        scoreSummary += `- *Post-Traumatic Stress Disorder (PCL-5):* ${scores.ptsd}\n`;
-        scoringGuide += "- *PTSD:* 0-32 (Not Clinically Significant), 33+ (Clinically Significant)\n";
+    if (scores["BAI"] !== undefined) {
+        scoreSummary += `- BAI (Anxiety): ${scores["BAI"]}\n`;
+        scoringGuide += "- BAI: 0–7 (Minimal), 8–15 (Mild), 16–25 (Moderate), 26–63 (Severe)\n";
     }
-    if (scores.sleep !== undefined) {
-        scoreSummary += `- *Sleep Issues (ISI):* ${scores.sleep}\n`;
-        scoringGuide += "- *Sleep Issues:* 0-7 (No issues), 8-14 (Subthreshold), 15-21 (Moderate), 22-28 (Severe)\n";
+
+    // Sleep
+    if (scores["ISI"] !== undefined) {
+        scoreSummary += `- ISI (Sleep): ${scores["ISI"]}\n`;
+        scoringGuide += "- ISI: 0–7 (No issues), 8–14 (Subthreshold), 15–21 (Moderate), 22–28 (Severe)\n";
+    }
+
+    // PTSD
+    if (scores["PCL-5"] !== undefined) {
+        scoreSummary += `- PCL-5 (PTSD): ${scores["PCL-5"]}\n`;
+        scoringGuide += "- PCL-5: 0–32 (Not Clinically Significant), 33+ (Clinically Significant)\n";
+    }
+
+    // OCD
+    if (scores["Y-BOCS-II"] !== undefined) {
+        scoreSummary += `- Y-BOCS-II (OCD): ${scores["Y-BOCS-II"]}\n`;
+        scoringGuide += "- Y-BOCS-II: 0–7 (Subclinical), 8–15 (Mild), 16–23 (Moderate), 24–31 (Severe), 32–40+ (Extreme)\n";
     }
 
     const prompt = `
-Generate a **brief** (8-10 lines) structured mental health report based on the patient's screening scores. Use **bold formatting** with asterisks (*) to highlight key points since this report will be sent as a WhatsApp message.
-
-**Patient's Screening Test Scores:**
-${scoreSummary}
-
-**Scoring Guidelines:**
-${scoringGuide}
-
-**Report Format:**
-- *Summary:* (Brief overview of the patient's mental health based on their scores)
-- *Findings:* (Highlight key concerns based on severity)
-- *Recommendations:* (Personalized next steps, treatment suggestions, and self-care tips)
-
-Be strict about score interpretation. If PTSD is <33, state it clearly as “not clinically significant.” Include emojis and suggest whether the patient should consult a psychiatrist.
-`;
+  Write a personalized, structured mental health report (about 8–10 lines) for a user named ${patientName}, based on the screening scores below.
+  
+  ✅ Use second-person language — talk directly to the user (say "you", not "the patient").
+  ✅ Begin the report with: "${patientName}, based on your responses..."
+  ✅ Divide the report clearly into 3 sections:
+  - Summary
+  - Findings
+  - Recommendations
+  
+  Each section heading should be plain text (e.g., "Summary:") — do NOT use asterisks (*), bold, or markdown.
+  
+  Keep the tone supportive, warm, and professional. Include emojis where appropriate.
+  
+  **Screening Test Scores:**
+  ${scoreSummary}
+  
+  **Scoring Guidelines:**
+  ${scoringGuide}
+  
+  Rules:
+  - Don't refer to the user in third-person.
+  - Keep language short, clear, and easy to read on WhatsApp.
+  - Mention if PTSD < 33: "your PTSD score is not clinically significant."
+  - Recommendations should sound kind and actionable — like "You might benefit from talking to a therapist 🧑‍⚕️, practicing meditation 🧘‍♂️, and prioritizing rest 😴."
+  `;
 
     try {
         const response = await fetch(

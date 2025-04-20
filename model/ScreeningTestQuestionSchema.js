@@ -4,19 +4,22 @@ const ScreeningTestQuestionSchema = new mongoose.Schema(
   {
     section: {
       type: String,
-      required: true
+      required: true // e.g., "depression", "anxiety"
+    },
+    instrument: {
+      type: String,
+      required: true // e.g., "PHQ-9", "BDI-2", "GAD-7", "BAI"
     },
     order: {
       type: Number,
       required: true,
-      unique: true
     },
     question: {
       type: String,
       required: true
     },
     options: {
-      type: [String], // Array of answer strings (1-based mapping to answer index)
+      type: [String],
       required: true
     }
   },

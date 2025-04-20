@@ -24,6 +24,28 @@ NewScreeningTestRoute.get("/", (req, res) => {
     });
 });
 
+// 🔹 Get all screening tests for a patient by ID
+NewScreeningTestRoute.get("/:id", async (req, res) => {
+    const { id } = req.params;
+
+    if (!id) {
+        return res.status(400).json({ message: "Missing patient ID" });
+    }
+
+    try {
+        const records = await NewScreeningTestSchema.find({ patient_id: id }).sort({ DateOfTest: -1 });
+
+        if (records.length === 0) {
+            return res.status(404).json({ message: "No screening test records found for this patient." });
+        }
+
+        res.status(200).json(records);
+    } catch (error) {
+        console.error("❌ Error fetching screening tests:", error);
+        res.status(500).json({ message: "Server error", error });
+    }
+});
+
 NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
     try {
         console.log("🔹 Received request body:", req.body);
@@ -79,7 +101,7 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
 
         console.log("📝 Per-instrument scores:", scores);
 
-        const reportResponse = await fetch("http://localhost:4000/GeminiRoute/generateReport", {
+        const reportResponse = await fetch("https://backend-xhl4.onrender.com/GeminiRoute/generateReport", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ scores, patientName })

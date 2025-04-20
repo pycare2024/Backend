@@ -664,18 +664,24 @@ AppointmentRoute.get("/doctor-appointments-range", async (req, res) => {
 AppointmentRoute.post("/markCompleted/:appointmentId", async (req, res) => {
     try {
         const { appointmentId } = req.params;
+        const { notes, recommendations } = req.body;
+
+        if (!notes || notes.trim() === "") {
+            return res.status(400).json({ message: "Notes are required to complete the session." });
+        }
 
         const appointment = await AppointmentRecordsSchema.findById(appointmentId);
         if (!appointment) {
             return res.status(404).json({ message: "Appointment not found" });
         }
 
-        // ✅ Step 1: Check if session started
+        appointment.notes = notes;
+        appointment.recommendations = recommendations || "";
+
         if (!appointment.session_started || !appointment.session_start_time) {
             return res.status(400).json({ message: "Session has not been started yet." });
         }
 
-        // 🧪 [Time constraint removed for testing]
         const sessionStart = new Date(appointment.session_start_time);
         const currentTime = new Date();
         const twentyMinutesLater = new Date(sessionStart.getTime() + 20 * 60000);
@@ -685,10 +691,8 @@ AppointmentRoute.post("/markCompleted/:appointmentId", async (req, res) => {
             });
         }
 
-        // ✅ Step 2: Mark as completed
         appointment.appointment_status = "completed";
 
-        // ✅ Step 3: Check if already paid
         if (appointment.isPaidToDoctor) {
             await appointment.save();
             return res.status(200).json({
@@ -697,7 +701,6 @@ AppointmentRoute.post("/markCompleted/:appointmentId", async (req, res) => {
             });
         }
 
-        // ✅ Step 4: Check payout eligibility
         if (appointment.payment_status !== "confirmed") {
             await appointment.save();
             return res.status(200).json({
@@ -706,9 +709,8 @@ AppointmentRoute.post("/markCompleted/:appointmentId", async (req, res) => {
             });
         }
 
-        // ✅ Step 5: Perform payout
         const doctorId = appointment.doctor_id;
-        const amount = 500; // Update if needed
+        const amount = 500;
 
         await DoctorTransactionsSchema.create({
             doctorId,
@@ -735,6 +737,39 @@ AppointmentRoute.post("/markCompleted/:appointmentId", async (req, res) => {
         appointment.isPaidToDoctor = true;
         await appointment.save();
 
+        // ✅ Send WhatsApp message with recommendations
+        const patientName = appointment.patientName;
+        const patientPhoneNumber = appointment.patientPhoneNumber;
+        const recommendationsText =
+            appointment.recommendations && appointment.recommendations.trim() !== ""
+                ? appointment.recommendations
+                : "Here are some general suggestions to help you maintain your mental wellness: 🌱 Stay consistent with self-care, practice mindfulness, and don't hesitate to seek support when needed.";
+
+        if (patientPhoneNumber) {
+            try {
+                const whatsappResponse = await fetch(`${WATI_API_URL}?whatsappNumber=91${patientPhoneNumber}`, {
+                    method: "POST",
+                    headers: {
+                        Authorization: WATI_API_KEY,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        template_name: "send_session_recommendations",
+                        broadcast_name: "recommendationBroadcast",
+                        parameters: [
+                            { name: "name", value: patientName },
+                            { name: "1", value: recommendationsText }
+                        ]
+                    })
+                });
+
+                const whatsappResult = await whatsappResponse.json();
+                console.log("\u{1F4E4} WhatsApp message sent:", whatsappResult);
+            } catch (err) {
+                console.error("\u{274C} WhatsApp sending failed:", err);
+            }
+        }
+
         res.status(200).json({
             message: "Appointment marked as completed and doctor credited.",
             appointment
@@ -745,6 +780,7 @@ AppointmentRoute.post("/markCompleted/:appointmentId", async (req, res) => {
         res.status(500).json({ message: "Server error" });
     }
 });
+
 
 AppointmentRoute.post("/markNoShow/:appointmentId", async (req, res) => {
     try {

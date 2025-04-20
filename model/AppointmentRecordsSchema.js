@@ -24,7 +24,9 @@ const AppointmentRecordsSchema = new mongoose.Schema({
     "meeting_link": { type: String },
     "session_started": { type: Boolean, default: false },
     "session_start_time": { type: Date, default: null },
-    "isPaidToDoctor": { type: Boolean, default: false }       
+    "isPaidToDoctor": { type: Boolean, default: false },
+    "notes": { type: String, default: "" },
+    "recommendations": { type: String, default: "" }       
 }, {
     collection: "AppointmentRecords"
 });

@@ -3,7 +3,6 @@ const sendEmail = require("../Utility/emailSender");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
-const xlsx = require("xlsx");
 
 const EmailRoute = express.Router();
 
@@ -14,95 +13,75 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-EmailRoute.post(
-  "/send-bulk",
-  upload.fields([
-    { name: "excelFile", maxCount: 1 },
-    { name: "attachments", maxCount: 10 }, // ✅ multiple attachments
-  ]),
-  async (req, res) => {
-    const { subject, template } = req.body;
+EmailRoute.post("/send-single", upload.fields([
+  { name: "attachments", maxCount: 10 }
+]), async (req, res) => {
+  const { fromEmail, fromPassword, subject, template, recipient } = req.body;
 
-    const excelFile = req.files?.["excelFile"]?.[0];
-    const attachmentFiles = req.files?.["attachments"] || [];
+  console.log("🔐 Sender:", fromEmail);
+  console.log("📧 Subject Template:", subject?.substring(0, 80));
+  console.log("📝 Body Template:", template?.substring(0, 80));
+  console.log("📦 Attachments:", req.files?.attachments?.map(f => f.originalname));
 
-    console.log("✅ Subject:", subject);
-    console.log("✅ Template received:", template?.substring(0, 50), "...");
-    console.log("📎 Excel File:", excelFile?.originalname);
-    console.log("📎 Attachments:", attachmentFiles.map(f => f.originalname));
-
-    if (!excelFile || !subject || !template) {
-      return res.status(400).json({
-        message: "Missing required fields (Excel, subject, or template)",
-      });
-    }
-
-    try {
-      const workbook = xlsx.readFile(excelFile.path);
-      const sheetName = workbook.SheetNames[0];
-      const recipients = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-
-      console.log("📄 Total recipients loaded:", recipients.length);
-      if (!recipients.length) {
-        return res
-          .status(400)
-          .json({ message: "No recipients found in Excel." });
-      }
-
-      const attachments = attachmentFiles.map((file) => ({
-        filename: file.originalname,
-        path: path.resolve(file.path),
-      }));
-
-      const results = [];
-
-      for (const recipient of recipients) {
-        const { email } = recipient;
-        if (!email) {
-          console.warn("⚠️ Skipping entry with missing email:", recipient);
-          continue;
-        }
-
-        let personalizedHtml = template;
-        const placeholders = template.match(/{{(.*?)}}/g) || [];
-
-        for (const placeholder of placeholders) {
-          const key = placeholder.replace(/{{|}}/g, "").trim();
-          personalizedHtml = personalizedHtml.replaceAll(
-            placeholder,
-            recipient[key] || ""
-          );
-        }
-
-        try {
-          const response = await sendEmail(
-            email,
-            subject,
-            personalizedHtml,
-            attachments
-          );
-          console.log(`✅ Email sent to ${email} [ID: ${response.messageId}]`);
-          results.push({ email, status: "sent", messageId: response.messageId });
-        } catch (err) {
-          console.error(`❌ Failed to send to ${email}:`, err.message);
-          results.push({ email, status: "failed", error: err.message });
-        }
-      }
-
-      res.status(200).json({
-        message:
-          results.length > 0
-            ? "Emails processed."
-            : "No emails were sent. Please check your Excel file and placeholders.",
-        results,
-      });
-    } catch (error) {
-      console.error("❌ Bulk email error:", error);
-      res
-        .status(500)
-        .json({ message: "Failed to send emails", error: error.message });
-    }
+  if (!fromEmail || !fromPassword || !subject || !template || !recipient) {
+    console.error("❌ Missing required fields.");
+    return res.status(400).json({ message: "Missing required fields." });
   }
-);
+
+  let parsedRecipient;
+  try {
+    parsedRecipient = JSON.parse(recipient);
+    console.log("👤 Parsed Recipient:", parsedRecipient);
+  } catch (err) {
+    console.error("❌ Failed to parse recipient JSON:", err.message);
+    return res.status(400).json({ message: "Invalid recipient data format." });
+  }
+
+  const attachments = (req.files?.attachments || []).map(file => ({
+    filename: file.originalname,
+    path: path.resolve(file.path),
+  }));
+
+  try {
+    let personalizedSubject = subject;
+    let personalizedTemplate = template;
+
+    const placeholders = [...(subject.match(/{{(.*?)}}/g) || []), ...(template.match(/{{(.*?)}}/g) || [])];
+    const usedPlaceholders = new Set();
+
+    for (const placeholder of placeholders) {
+      const key = placeholder.replace(/{{|}}/g, "").trim();
+      personalizedSubject = personalizedSubject.replaceAll(placeholder, parsedRecipient[key] || "");
+      personalizedTemplate = personalizedTemplate.replaceAll(placeholder, parsedRecipient[key] || "");
+      usedPlaceholders.add(key);
+    }
+
+    console.log("🔍 Replaced Placeholders:", [...usedPlaceholders]);
+    console.log("📨 Sending email to:", parsedRecipient.email);
+
+    const response = await sendEmail({
+      fromEmail,
+      fromPassword,
+      to: parsedRecipient.email,
+      subject: personalizedSubject,
+      html: personalizedTemplate,
+      attachments
+    });
+
+    console.log(`✅ Email sent to ${parsedRecipient.email} [ID: ${response.messageId}]`);
+    res.status(200).json({
+      email: parsedRecipient.email,
+      status: "sent",
+      messageId: response.messageId,
+    });
+  } catch (err) {
+    console.error(`❌ Failed to send to ${parsedRecipient.email}:`, err.message);
+    res.status(500).json({
+      email: parsedRecipient.email,
+      status: "failed",
+      error: err.message,
+    });
+  }
+});
 
 module.exports = EmailRoute;

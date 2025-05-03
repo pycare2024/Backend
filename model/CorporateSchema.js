@@ -21,11 +21,17 @@ const CorporateSchema = new mongoose.Schema({
   associatedPatients: [{
     empId: { type: String, required: true },
     employeePhone: { type: String, required: true },
+    department: { type: String },
     familyMembers: [{
       name: { type: String, required: true },
       mobile: { type: String, required: true },
       relation: { type: String, required: true }
-    }]
+    }],
+    visits: [  // ✅ Only visits of employees now
+      {
+        date: { type: Date, default: Date.now },
+      }
+    ]
   }]
 }, {
   collection: "Corporates"

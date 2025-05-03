@@ -307,6 +307,28 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
                 }
             );
 
+            const corporate = await Corporate.findOneAndUpdate(
+                {
+                    companyCode: companyCode,
+                    "associatedPatients.empId": empId,   // very important: match empId (employee only)
+                },
+                {
+                    $push: {
+                        "associatedPatients.$.visits": {
+                            date: appointmentDate,
+                            purpose: "Appointment"  // or save from frontend if dynamic
+                        }
+                    }
+                },
+                { new: true }
+            );
+
+            if (!corporate) {
+                console.error("Employee not found inside corporate during visit update.");
+            } else {
+                console.log("✅ Visit successfully added to employee record");
+            }
+
             if (phone) {
                 await fetch(`${WATI_API_URL}?whatsappNumber=91${phone}`, {
                     method: "POST",

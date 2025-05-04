@@ -4,6 +4,7 @@ const NewScreeningTestSchema = require("../model/NewScreeningTestSchema"); // En
 const ScreeningTestQuestionSchema = require("../model/ScreeningTestQuestionSchema");
 const NewScreeningTestRoute = express.Router();
 const patientSchema = require("../model/patientSchema");
+const CorporateSchema = require("../model/CorporateSchema");
 const fetch = require("node-fetch");
 
 NewScreeningTestRoute.get("/getQuestions", async (req, res) => {
@@ -113,7 +114,7 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
         if (patient.userType === "corporate") {
             companyCode = patient.companyCode;
 
-            const corporate = await Corporate.findOne({ companyCode });
+            const corporate = await CorporateSchema.findOne({ companyCode });
 
             if (corporate) {
                 const associatedEmployee = corporate.associatedPatients.find(emp => emp.empId === patient.empId);

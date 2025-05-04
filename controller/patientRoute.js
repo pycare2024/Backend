@@ -422,4 +422,21 @@ patientRoute.get("/record/:recordId/pdf", async (req, res) => {
     }
 });
 
+patientRoute.get('/getPatientByPhone/:phone', async (req, res) => {
+    const { phone } = req.params;
+  
+    try {
+      const patient = await patientSchema.findOne({ Mobile: phone });
+  
+      if (!patient) {
+        return res.status(404).json({ message: 'Patient not found' });
+      }
+  
+      res.status(200).json({ patient });
+    } catch (error) {
+      console.error('Error fetching patient by phone:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  });
+
 module.exports = patientRoute;

@@ -8,7 +8,12 @@ const NewScreeningTestSchema = new mongoose.Schema({
     of: Number
   },
   DateOfTest: { type: Date, default: Date.now },
-  report: { type: String }
+  report: { type: String },
+
+  // 🔵 New fields
+  companyCode: { type: String, default: null },
+  department: { type: String, default: null }
+
 }, {
   collection: "NewScreeningTestRecords"
 });

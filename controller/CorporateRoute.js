@@ -104,14 +104,17 @@ CorporateRoute.post("/registerCorporateEmployee", async (req, res) => {
   }
 
   try {
-    // 1. Save the patient into the patient collection
+    // 1. Save the patient into the Patients collection
     const newPatient = new patientSchema({
       Name,
       Age,
       Gender,
       Location,
       Mobile,
-      Problem
+      Problem,
+      userType: "corporate",    // 👈 Corporate user type
+      empId: empId,              // 👈 Employee ID
+      companyCode: companyCode   // 👈 Company code
     });
 
     await newPatient.save();
@@ -124,9 +127,9 @@ CorporateRoute.post("/registerCorporateEmployee", async (req, res) => {
           associatedPatients: {
             empId,
             employeePhone: Mobile,
-            department: Department,    // ✅ add department
+            department: Department,
             familyMembers: [],
-            visits: []                 // ✅ optional: initialize visits empty
+            visits: []
           }
         }
       }
@@ -175,19 +178,23 @@ CorporateRoute.post("/registerFamilyMember", async (req, res) => {
       return res.status(404).json({ message: "Employee not found in this company." });
     }
 
+    // Check if family member is already registered
     const familyExists = employee.familyMembers.find(m => m.mobile === mobile);
     if (familyExists) {
       return res.status(409).json({ message: "Family member already registered." });
     }
 
-    // ✅ Register in Patients table
+    // ✅ Register family member in Patients table
     const newPatient = new patientSchema({
       Name: name,
       Age: age,
       Gender: gender,
       Location: location,
       Mobile: mobile,
-      Problem: problem
+      Problem: problem,
+      userType: "corporate",   // family member under corporate patient
+      empId: empId,            // linking to employee's empId
+      companyCode: companyCode // linking to company code
     });
 
     await newPatient.save();

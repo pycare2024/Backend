@@ -144,7 +144,10 @@ patientRoute.post("/register", async (req, res) => {
         Gender,
         Location,
         Mobile,
-        Problem
+        Problem,
+        userType: "retail",   // 👈 Set userType always to retail for this route
+        empId: null,          // 👈 Not needed for retail
+        companyCode: null     // 👈 Not needed for retail
       });
   
       await newPatient.save();

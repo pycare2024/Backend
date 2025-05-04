@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const NewScreeningTestSchema = require("../model/NewScreeningTestSchema"); // Ensure correct path
 const ScreeningTestQuestionSchema = require("../model/ScreeningTestQuestionSchema");
 const NewScreeningTestRoute = express.Router();
+const patientSchema = require("../model/patientSchema");
 const fetch = require("node-fetch");
 
 NewScreeningTestRoute.get("/getQuestions", async (req, res) => {
@@ -66,25 +67,12 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
 
         console.log("✅ Parsed numerical responses:", responses);
 
-        // Map of instruments by category
         const instrumentMap = {
-            depression: [
-                { name: "PHQ-9", count: 9 },
-                { name: "BDI-II", count: 21 }
-            ],
-            anxiety: [
-                { name: "GAD-7", count: 7 },
-                { name: "BAI", count: 21 }
-            ],
-            sleep: [
-                { name: "ISI", count: 7 }
-            ],
-            ptsd: [
-                { name: "PCL-5", count: 20 }
-            ],
-            ocd: [
-                { name: "Y-BOCS-II", count: 20 }
-            ]
+            depression: [{ name: "PHQ-9", count: 9 }, { name: "BDI-II", count: 21 }],
+            anxiety: [{ name: "GAD-7", count: 7 }, { name: "BAI", count: 21 }],
+            sleep: [{ name: "ISI", count: 7 }],
+            ptsd: [{ name: "PCL-5", count: 20 }],
+            ocd: [{ name: "Y-BOCS-II", count: 20 }]
         };
 
         let currentIndex = 0;
@@ -112,11 +100,37 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
 
         console.log("📄 Generated Report:", report);
 
+        // 🔵 New Logic: Fetch patient data
+        const patient = await patientSchema.findById(patient_id);
+
+        if (!patient) {
+            return res.status(404).json({ message: "Patient not found" });
+        }
+
+        let companyCode = null;
+        let department = null;
+
+        if (patient.userType === "corporate") {
+            companyCode = patient.companyCode;
+
+            const corporate = await Corporate.findOne({ companyCode });
+
+            if (corporate) {
+                const associatedEmployee = corporate.associatedPatients.find(emp => emp.empId === patient.empId);
+
+                if (associatedEmployee) {
+                    department = associatedEmployee.department || null;
+                }
+            }
+        }
+
         const assessment = new NewScreeningTestSchema({
             patient_id,
             scores,
             DateOfTest: new Date(),
-            report
+            report,
+            companyCode,
+            department
         });
 
         await assessment.save();

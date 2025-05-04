@@ -1,15 +1,25 @@
+const mongoose = require("mongoose");
 
-const mongoose=require("mongoose");
+const patientSchema = new mongoose.Schema({
+  Name: { type: String, required: true },
+  Age: { type: Number },
+  Gender: { type: String },
+  Location: { type: String },
+  Mobile: { type: Number },
+  Problem: { type: [String] },
+  
+  // 👇 New fields
+  userType: { 
+    type: String, 
+    enum: ["retail", "corporate"], 
+    required: true,
+    default: "retail"
+  },
+  empId: { type: String, default: null },      // Only if corporate
+  companyCode: { type: String, default: null }  // Only if corporate
 
-const patientSchema=new mongoose.Schema({
-    "Name":{type:String},
-    "Age":{type:Number},
-    "Gender":{type:String},
-    "Location":{type:String},
-    "Mobile":{type:Number},
-    "Problem":{type:[String]}
-},{
-    collection: "Patients"
-})
+}, {
+  collection: "Patients"
+});
 
-module.exports=mongoose.model("patientSchema",patientSchema);
+module.exports = mongoose.model("patientSchema", patientSchema);

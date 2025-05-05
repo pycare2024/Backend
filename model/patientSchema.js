@@ -7,7 +7,7 @@ const patientSchema = new mongoose.Schema({
   Location: { type: String },
   Mobile: { type: Number },
   Problem: { type: [String] },
-  
+
   // 👇 New fields
   userType: { 
     type: String, 
@@ -16,7 +16,8 @@ const patientSchema = new mongoose.Schema({
     default: "retail"
   },
   empId: { type: String, default: null },      // Only if corporate
-  companyCode: { type: String, default: null }  // Only if corporate
+  companyCode: { type: String, default: null }, // Only if corporate
+  isFamilyMember: { type: Boolean, default: false } // New field: True for family members, False for employees
 
 }, {
   collection: "Patients"

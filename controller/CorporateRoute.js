@@ -5,6 +5,7 @@ const Corporate = require("../model/CorporateSchema");
 const razorpay = require("../razorpay");
 const crypto = require("crypto");
 const { DEFAULT_CIPHERS } = require("tls");
+const ScreeningTestSchema = require("../model/NewScreeningTestSchema");
 
 const WATI_API_URL = "https://live-mt-server.wati.io/387357/api/v2/sendTemplateMessage";
 const WATI_API_KEY = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhZmY3OWIzZC0wY2FjLTRlMjEtOThmZC1hNTExNGQyYzBlOTEiLCJ1bmlxdWVfbmFtZSI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsIm5hbWVpZCI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsImVtYWlsIjoiY29udGFjdHVzQHBzeS1jYXJlLmluIiwiYXV0aF90aW1lIjoiMDEvMDEvMjAyNSAwNTo0NzoxOCIsInRlbmFudF9pZCI6IjM4NzM1NyIsImRiX25hbWUiOiJtdC1wcm9kLVRlbmFudHMiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBRE1JTklTVFJBVE9SIiwiZXhwIjoyNTM0MDIzMDA4MDAsImlzcyI6IkNsYXJlX0FJIiwiYXVkIjoiQ2xhcmVfQUkifQ.e4BgIPZN_WI1RU4VkLoyBAndhzW8uKntWnhr4K-J9K0"; // Replace with actual token
@@ -194,7 +195,8 @@ CorporateRoute.post("/registerFamilyMember", async (req, res) => {
       Problem: problem,
       userType: "corporate",   // family member under corporate patient
       empId: empId,            // linking to employee's empId
-      companyCode: companyCode // linking to company code
+      companyCode: companyCode, // linking to company code
+      isFamilyMember: true,
     });
 
     await newPatient.save();
@@ -319,5 +321,162 @@ CorporateRoute.post("/corporate-recharge-webhook", express.json(), async (req, r
     res.status(500).json({ message: "Webhook failed", error: err.message });
   }
 });
+
+const instrumentMap = {
+  depression: [{ name: "PHQ-9", count: 9 }, { name: "BDI-II", count: 21 }],
+  anxiety: [{ name: "GAD-7", count: 7 }, { name: "BAI", count: 21 }],
+  sleep: [{ name: "ISI", count: 7 }],
+  ptsd: [{ name: "PCL-5", count: 20 }],
+  ocd: [{ name: "Y-BOCS-II", count: 20 }]
+};
+
+CorporateRoute.get("/:companyCode/screening-summary", async (req, res) => {
+  try {
+      const { companyCode } = req.params;
+      const { startDate, endDate } = req.query;
+
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setUTCHours(23, 59, 59, 999); // Include full day
+
+      // 1. Fetch company
+      const corporate = await Corporate.findOne({ companyCode });
+      if (!corporate) {
+          return res.status(404).json({ message: "Company not found" });
+      }
+
+      // 2. empId -> department mapping
+      const empIdToDepartmentMap = {};
+      corporate.associatedPatients.forEach(ap => {
+          empIdToDepartmentMap[ap.empId] = ap.department || "Unknown";
+      });
+
+      // 3. Fetch patients (excluding family members)
+      const patients = await patientSchema.find({ 
+          empId: { $in: Object.keys(empIdToDepartmentMap) }, 
+          companyCode,
+          isFamilyMember: { $ne: true }  // Exclude family members
+      });
+
+      if (!patients.length) {
+          return res.status(404).json({ message: "No employees found for this company." });
+      }
+
+      // 4. _id -> department mapping
+      const patientIdToDepartment = {};
+      patients.forEach(patient => {
+          const department = empIdToDepartmentMap[patient.empId] || "Unknown";
+          patientIdToDepartment[patient._id.toString()] = department;
+      });
+
+      // 5. Fetch screening tests
+      const screenings = await ScreeningTestSchema.find({
+          patient_id: { $in: patients.map(p => p._id) },
+          companyCode,
+          DateOfTest: { $gte: start, $lte: end }
+      });
+
+      if (!screenings.length) {
+          return res.status(404).json({ message: "No screening tests found in this date range." });
+      }
+
+      console.log("Running Mental health screening summary test");
+
+      // 6. Prepare instruments
+      const instruments = [];
+      for (const category in instrumentMap) {
+          instrumentMap[category].forEach(inst => {
+              instruments.push(inst.name);
+          });
+      }
+
+      // 7. Thresholds
+      const PHQ9_THRESHOLD = 10;   
+      const BDI2_THRESHOLD = 20;   
+      const GAD7_THRESHOLD = 10;   
+      const BAI_THRESHOLD = 16;    
+      const ISI_THRESHOLD = 15;    
+      const PCL5_THRESHOLD = 33;   
+      const YBOCS2_THRESHOLD = 16; 
+
+      // 8. Initialize
+      const departmentScores = {}; // { dept: { PHQ-9: [], GAD-7: [], etc. } }
+      let insomniaCount = 0;
+      let anxietyCount = 0;
+      let depressionCount = 0;
+
+      // 9. Process each screening
+      screenings.forEach(screening => {
+          console.log("Patient id->",screening.patient_id.toString());
+          const department = patientIdToDepartment[screening.patient_id.toString()] || "Unknown";
+
+          if (!departmentScores[department]) {
+              departmentScores[department] = {
+                  "PHQ-9": [], "BDI-II": [],
+                  "GAD-7": [], "BAI": [],
+                  "ISI": [], "PCL-5": [],
+                  "Y-BOCS-II": []
+              };
+          }
+
+          const scores = screening.scores || {};
+          const plainScores = scores instanceof Map ? Object.fromEntries(scores) : scores;
+
+          // Fill department scores
+          instruments.forEach(instr => {
+              if (plainScores[instr] !== undefined) {
+                  departmentScores[department][instr].push(plainScores[instr]);
+              }
+          });
+
+          // Threshold-based counts
+          let hasDepression = false;
+
+          if (plainScores["PHQ-9"] !== undefined && plainScores["PHQ-9"] >= PHQ9_THRESHOLD)
+            {
+              hasDepression=true;
+            };
+          if (plainScores["BDI-II"] !== undefined && plainScores["BDI-II"] >= BDI2_THRESHOLD)
+            {
+              hasDepression=true;
+            };
+
+          if(hasDepression)
+            {
+              depressionCount++;
+            }  
+            
+          let hasAnxiety = false;
+
+          if (plainScores["GAD-7"] !== undefined && plainScores["GAD-7"] >= GAD7_THRESHOLD) {
+            hasAnxiety = true;
+          }
+          if (plainScores["BAI"] !== undefined && plainScores["BAI"] >= BAI_THRESHOLD) {
+            hasAnxiety = true;
+          }
+          
+          if (hasAnxiety) {
+            anxietyCount++;
+          }
+
+          if (plainScores["ISI"] !== undefined && plainScores["ISI"] >= ISI_THRESHOLD) insomniaCount++;
+      });
+
+      // 10. Response
+      return res.json({
+          totalScreenings: screenings.length,
+          totalPatients: patients.length, // Count total patients (employees + family members)
+          insomniaCases: insomniaCount,
+          anxietyCases: anxietyCount,
+          depressionCases: depressionCount,
+          departmentScores
+      });
+
+  } catch (error) {
+      console.error("Error generating screening summary:", error);
+      return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 
 module.exports = CorporateRoute;

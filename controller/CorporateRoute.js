@@ -6,6 +6,7 @@ const razorpay = require("../razorpay");
 const crypto = require("crypto");
 const { DEFAULT_CIPHERS } = require("tls");
 const ScreeningTestSchema = require("../model/NewScreeningTestSchema");
+const AppointmentRecords = require("../model/AppointmentRecordsSchema");
 
 const WATI_API_URL = "https://live-mt-server.wati.io/387357/api/v2/sendTemplateMessage";
 const WATI_API_KEY = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhZmY3OWIzZC0wY2FjLTRlMjEtOThmZC1hNTExNGQyYzBlOTEiLCJ1bmlxdWVfbmFtZSI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsIm5hbWVpZCI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsImVtYWlsIjoiY29udGFjdHVzQHBzeS1jYXJlLmluIiwiYXV0aF90aW1lIjoiMDEvMDEvMjAyNSAwNTo0NzoxOCIsInRlbmFudF9pZCI6IjM4NzM1NyIsImRiX25hbWUiOiJtdC1wcm9kLVRlbmFudHMiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBRE1JTklTVFJBVE9SIiwiZXhwIjoyNTM0MDIzMDA4MDAsImlzcyI6IkNsYXJlX0FJIiwiYXVkIjoiQ2xhcmVfQUkifQ.e4BgIPZN_WI1RU4VkLoyBAndhzW8uKntWnhr4K-J9K0"; // Replace with actual token
@@ -467,6 +468,7 @@ CorporateRoute.get("/:companyCode/screening-summary", async (req, res) => {
 
       // 10. Response
       return res.json({
+          companyName : corporate.companyName,
           totalScreenings: screenings.length,
           totalPatients: patients.length, // Count total patients (employees + family members)
           insomniaCases: insomniaCount,
@@ -482,5 +484,87 @@ CorporateRoute.get("/:companyCode/screening-summary", async (req, res) => {
   }
 });
 
+CorporateRoute.get('/demographic-insights/:companyCode', async (req, res) => {
+  try {
+      const { companyCode } = req.params;
+
+      // 1. Fetch patients of this company
+      const patients = await patientSchema.find({ companyCode });
+
+      if (patients.length === 0) {
+          return res.status(404).json({ message: "No patients found for this company." });
+      }
+
+      // 2. Age group breakdown
+      const ageGroups = {
+          "18-25": 0,
+          "26-35": 0,
+          "36-45": 0,
+          "46-60": 0,
+          "60+": 0,
+          "Unknown": 0
+      };
+
+      patients.forEach(patient => {
+          const age = patient.Age;
+          if (typeof age !== 'number') {
+              ageGroups["Unknown"] += 1;
+          } else if (age >= 18 && age <= 25) {
+              ageGroups["18-25"] += 1;
+          } else if (age >= 26 && age <= 35) {
+              ageGroups["26-35"] += 1;
+          } else if (age >= 36 && age <= 45) {
+              ageGroups["36-45"] += 1;
+          } else if (age >= 46 && age <= 60) {
+              ageGroups["46-60"] += 1;
+          } else if (age > 60) {
+              ageGroups["60+"] += 1;
+          } else {
+              ageGroups["Unknown"] += 1;
+          }
+      });
+
+      // 3. Gender split
+      const genderSplit = {
+          Male: 0,
+          Female: 0,
+          Other: 0,
+          Unknown: 0
+      };
+
+      patients.forEach(patient => {
+          const gender = patient.Gender ? patient.Gender.toLowerCase() : "unknown";
+          if (gender === "male") genderSplit.Male += 1;
+          else if (gender === "female") genderSplit.Female += 1;
+          else if (gender === "other") genderSplit.Other += 1;
+          else genderSplit.Unknown += 1;
+      });
+
+      // 4. Location-wise participation
+      const locationParticipation = {};
+
+      patients.forEach(patient => {
+          const loc = patient.Location || "Unknown";
+          if (!locationParticipation[loc]) {
+              locationParticipation[loc] = 1;
+          } else {
+              locationParticipation[loc]++;
+          }
+      });
+
+      // 5. Final response
+      res.json({
+          companyCode,
+          totalPatients: patients.length,
+          ageGroups,
+          genderSplit,
+          locationParticipation
+      });
+
+  } catch (error) {
+      console.error("Error generating Demographic Insights Report:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+  }
+});
 
 module.exports = CorporateRoute;

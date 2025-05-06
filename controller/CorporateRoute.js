@@ -404,6 +404,7 @@ CorporateRoute.get("/:companyCode/screening-summary", async (req, res) => {
       let insomniaCount = 0;
       let anxietyCount = 0;
       let depressionCount = 0;
+      let ptsdCount = 0;
 
       // 9. Process each screening
       screenings.forEach(screening => {
@@ -460,6 +461,8 @@ CorporateRoute.get("/:companyCode/screening-summary", async (req, res) => {
           }
 
           if (plainScores["ISI"] !== undefined && plainScores["ISI"] >= ISI_THRESHOLD) insomniaCount++;
+
+          if (plainScores["PCL-5"] !== undefined && plainScores["PCL-5"] >= PCL5_THRESHOLD) ptsdCount++;
       });
 
       // 10. Response
@@ -469,6 +472,7 @@ CorporateRoute.get("/:companyCode/screening-summary", async (req, res) => {
           insomniaCases: insomniaCount,
           anxietyCases: anxietyCount,
           depressionCases: depressionCount,
+          ptsdCases: ptsdCount,
           departmentScores
       });
 

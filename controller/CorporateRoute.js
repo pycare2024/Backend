@@ -100,6 +100,7 @@ CorporateRoute.post("/verifyCorporatePatient", async (req, res) => {
       return res.status(200).json({
         exists: true,
         message: "Employee exists in our records.",
+        companyName: company?.companyName,
         employee // ✅ Include the full employee object
       });
     } else {

@@ -24,6 +24,23 @@ function generateCompanyCode(name) {
   return `${initials}${randomNum}`; // e.g., TCS2381
 }
 
+function generateEmployeeMessage(employee) {
+  let message = `✅ Employee Details:\n\n`;
+  message += `- Employee ID: ${employee.empId}\n`;
+  message += `- Phone: ${employee.employeePhone}\n`;
+  message += `- Department: ${employee.department}\n\n`;
+
+  message += `👨‍👩‍👧‍👦 Family Members:\n`;
+
+  employee.familyMembers.forEach((member, index) => {
+    message += `${index + 1}. ${member.name} (${member.relation}) - ${member.mobile}\n`;
+  });
+
+  message += `\n✏️ Please enter the mobile number of the person you want to proceed with.`;
+
+  return message;
+}
+
 CorporateRoute.post("/register", async (req, res) => {
   try {
     const { companyName, contactPerson, email, phone, empIdFormat } = req.body;
@@ -567,6 +584,7 @@ CorporateRoute.get('/demographic-insights/:companyCode', async (req, res) => {
   }
 });
 
+// Route to generate message
 CorporateRoute.post('/generate-message', (req, res) => {
   const { employee } = req.body;
 
@@ -574,36 +592,20 @@ CorporateRoute.post('/generate-message', (req, res) => {
     return res.status(400).json({ error: 'Employee data is required.' });
   }
 
-  // Step 1: Create employee information text
-  let messageText = `Here is the information of the employee and their family members:\n\n*Employee Info:*\n- **Employee ID**: ${employee.empId}\n- **Phone**: ${employee.employeePhone}\n- **Department**: ${employee.department}\n\n*Family Members:*`;
+  // Step 1: Use the generateEmployeeMessage function
+  const messageText = generateEmployeeMessage(employee);
 
-  // Step 2: Create family members text
-  let buttons = [];
-  employee.familyMembers.forEach((member, index) => {
-    messageText += `\n${index + 1}. **${member.name}** (${member.relation}) - Phone: ${member.mobile}`;
-
-    // Prepare a button for each family member
-    buttons.push({
-      text: `${member.name} (${member.relation})`,
-      payload: member._id
-    });
-  });
-
-  // Step 3: Final WATI message structure
+  // Step 2: Final WATI message structure
   const response = {
     messages: [
       {
         type: "text",
-        text: messageText + "\n\nPlease select the family member you wish to proceed with."
-      },
-      {
-        type: "buttons",
-        buttons: buttons
+        text: messageText
       }
     ]
   };
 
-  // Step 4: Send the response
+  // Step 3: Send the response
   res.json(response);
 });
 

@@ -104,7 +104,7 @@ CorporateRoute.post("/verifyCorporatePatient", async (req, res) => {
         employee // ✅ Include the full employee object
       });
     } else {
-      return res.status(200).json({
+      return res.status(700).json({
         exists: false,
         message: "Employee not found. Proceed to registration."
       });

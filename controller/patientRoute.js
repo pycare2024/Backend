@@ -121,7 +121,7 @@ patientRoute.get("/check/:phoneNumber", async (req, res) => {
         const patient = await patientSchema.findOne({ Mobile: phoneNumber }); // Match `Mobile` field in schema
         if (patient) {
             // Patient found, return patient ID
-            return res.status(200).json({ message: "Patient already registered", patientId: patient._id, patientName: patient.Name });
+            return res.status(200).json({ message: "Patient already registered", patientId: patient._id, patientName: patient.Name, patientMobile: patient.Mobile, patientGender: patient.Gender });
         } else {
             return res.status(404).json({ message: "Patient not registered" });
         }

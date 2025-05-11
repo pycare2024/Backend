@@ -90,7 +90,7 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
 
         console.log("📝 Per-instrument scores:", scores);
 
-        const reportResponse = await fetch("https://backend-xhl4.onrender.com/GeminiRoute/generateReport", {
+        const reportResponse = await fetch("http://localhost:4000/GeminiRoute/generateReport", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ scores, patientName })
@@ -138,6 +138,7 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
 
         res.status(201).json({
             message: "Assessment submitted successfully",
+            assessment_id: assessment._id,
             scores,
             report
         });

@@ -110,6 +110,7 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
 
         let companyCode = null;
         let department = null;
+        let companyName = null;
 
         if (patient.userType === "corporate") {
             companyCode = patient.companyCode;
@@ -118,6 +119,7 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
 
             if (corporate) {
                 const associatedEmployee = corporate.associatedPatients.find(emp => emp.empId === patient.empId);
+                companyName = corporate.companyName;
 
                 if (associatedEmployee) {
                     department = associatedEmployee.department || null;
@@ -141,7 +143,7 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
             assessment_id: assessment._id,
             userType: patient.userType,
             empId: patient.userType === "corporate" ? patient.empId : null,
-            companyCode: patient.userType === "corporate" ? patient.companyCode : null,
+            companyName: patient.userType === "corporate" ? companyName : null,
             scores,
             report
         });

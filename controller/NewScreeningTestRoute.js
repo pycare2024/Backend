@@ -139,6 +139,9 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
         res.status(201).json({
             message: "Assessment submitted successfully",
             assessment_id: assessment._id,
+            userType: patient.userType,
+            empId: patient.userType === "corporate" ? patient.empId : null,
+            companyCode: patient.userType === "corporate" ? patient.companyCode : null,
             scores,
             report
         });

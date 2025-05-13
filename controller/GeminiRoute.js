@@ -168,4 +168,53 @@ GeminiRoute.post("/generateReport", async (req, res) => {
     }
 });
 
+GeminiRoute.post("/summarizeDemographics", async (req, res) => {
+    const { demographicData } = req.body;
+
+    if (!demographicData) {
+        return res.status(400).json({ message: "Demographic data is required" });
+    }
+
+    try {
+        const prompt = `
+You are a corporate analytics expert. The following is demographic data of employees from a company.
+
+Based on this, generate a point-wise professional summary for an HR report that includes:
+1. Insights from the age group distribution
+2. Observations from the gender split
+3. Location-based participation patterns
+
+Be clear, insightful, and executive in tone. Here is the data:
+
+${JSON.stringify(demographicData, null, 2)}
+        `;
+
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-001:generateContent?key=${API_KEY}`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }]
+                })
+            }
+        );
+
+        const data = await response.json();
+
+        console.log("Gemini Summary Response:", JSON.stringify(data, null, 2)); // ✅ Debug log
+
+        const summaryText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!summaryText) {
+            return res.status(500).json({ message: "Invalid response from Gemini", data });
+        }
+
+        res.json({ summary: summaryText });
+    } catch (error) {
+        console.error("Error generating summary:", error);
+        res.status(500).json({ message: "Error generating summary", error: error.message });
+    }
+});
+
 module.exports = GeminiRoute; 

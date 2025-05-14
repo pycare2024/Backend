@@ -177,17 +177,26 @@ GeminiRoute.post("/summarizeDemographics", async (req, res) => {
 
     try {
         const prompt = `
-You are a corporate analytics expert. The following is demographic data of employees from a company.
+You are an expert in corporate HR analytics and workforce intelligence.
 
-Based on this, generate a point-wise professional summary for an HR report that includes:
-1. Insights from the age group distribution
-2. Observations from the gender split
-3. Location-based participation patterns
+Below is anonymized demographic data for employees of a company. Your task is to generate a **detailed, point-wise executive summary** for inclusion in an HR insights report.
 
-Be clear, insightful, and executive in tone. Here is the data:
+Please follow these guidelines:
+- Use a **professional and neutral tone** (avoid personal or judgmental statements).
+- Be **constructive and insight-driven**, highlighting patterns and possible strategic opportunities.
+- Provide **in-depth elaboration** (3–4 sentences per point), not just brief comments.
+- Include **light emoji use** for engagement (e.g., 📊, 👥, 🌍, 💡), but keep it polished and appropriate.
+- Avoid directly stating absence (e.g., “no females”) — instead, use phrases like “currently skewed toward…”
+
+Include insights on:
+1. **Age Group Distribution** – trends, implications, and workforce maturity.
+2. **Gender Split** – Gently highlight any existing imbalances, and frame them as opportunities to improve diversity and foster inclusion. Avoid negative language; instead, focus on potential growth areas. Use an encouraging, optimistic tone with constructive suggestions.
+3. **Geographic Participation** – representation and regional reach.
+
+Here is the data:
 
 ${JSON.stringify(demographicData, null, 2)}
-        `;
+`;
 
         const response = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-001:generateContent?key=${API_KEY}`,
@@ -210,6 +219,69 @@ ${JSON.stringify(demographicData, null, 2)}
             return res.status(500).json({ message: "Invalid response from Gemini", data });
         }
 
+        res.json({ summary: summaryText });
+    } catch (error) {
+        console.error("Error generating summary:", error);
+        res.status(500).json({ message: "Error generating summary", error: error.message });
+    }
+});
+
+GeminiRoute.post("/summarizeScreeningSummary", async (req, res) => {
+    const { screeningData } = req.body;
+
+    if (!screeningData) {
+        return res.status(400).json({ message: "Screening data is required" });
+    }
+
+    try {
+        // Constructing the prompt for Gemini AI with clinical psychologist perspective
+        const prompt = `
+You are a team of clinical psychologists from PsyCare. The following is a summary of employee mental health screening data.
+
+Your task is to generate a **detailed, point-wise executive summary** that provides professional, compassionate insights based on the provided data. Your report will be used to guide organizational wellbeing strategies.
+
+Please adhere to the following guidelines:
+- Use a **clinical, empathetic, and professional tone**.
+- Provide **insights** into the mental health status of employees, identifying areas that may need attention and offering suggestions for support.
+- Avoid using harsh or negative language; focus on the opportunity for improvement and support.
+- Include **light emojis** where appropriate to enhance the readability and engagement of the report (e.g., 🌱, 💪, 📊, 👥).
+- Frame findings in a **constructive manner** and suggest actionable steps for the organization.
+
+Focus on the following aspects:
+1. **Total Screenings & Participation** – Overview of the overall engagement in screenings.
+2. **Mental Health Cases** – Address any cases of insomnia, anxiety, depression, and PTSD, providing insights into possible next steps.
+3. **Departmental Insights** – Look at department-wise scores and offer tailored suggestions for further support.
+
+Here is the data:
+
+${JSON.stringify(screeningData, null, 2)}
+`;
+
+        // Sending the request to Gemini AI for content generation
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-001:generateContent?key=${API_KEY}`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }]
+                })
+            }
+        );
+
+        const data = await response.json();
+
+        // Logging the raw response for debugging
+        console.log("Gemini Summary Response:", JSON.stringify(data, null, 2));
+
+        // Extracting the summary content from the Gemini API response
+        const summaryText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!summaryText) {
+            return res.status(500).json({ message: "Invalid response from Gemini", data });
+        }
+
+        // Returning the generated summary as a response
         res.json({ summary: summaryText });
     } catch (error) {
         console.error("Error generating summary:", error);

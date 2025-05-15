@@ -863,7 +863,7 @@ CorporateRoute.get("/:companyCode/clinical-impact", async (req, res) => {
       
       console.log("Logging trend Groups=>", JSON.stringify(trendGroups, null, 2));
       
-      const geminiResponse = await fetch("http://localhost:4000/GeminiRoute/analyze-trends", {
+      const geminiResponse = await fetch("https://backend-xhl4.onrender.com/GeminiRoute/analyze-trends", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ trendGroups }),

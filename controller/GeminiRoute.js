@@ -157,7 +157,7 @@ GeminiRoute.post("/generateReport", async (req, res) => {
         );
 
         const data = await response.json();
-        console.log("Tools used->",toolsUsed);
+        console.log("Tools used->", toolsUsed);
         // console.log(data);
         const generatedReport = data?.candidates?.[0]?.content?.parts?.[0]?.text || "No report generated.";
 
@@ -286,6 +286,90 @@ ${JSON.stringify(screeningData, null, 2)}
     } catch (error) {
         console.error("Error generating summary:", error);
         res.status(500).json({ message: "Error generating summary", error: error.message });
+    }
+});
+
+GeminiRoute.post("/analyze-trends", async (req, res) => {
+    const { trendGroups } = req.body;
+
+    if (!trendGroups) {
+        return res.status(400).json({ message: "trendGroups is required." });
+    }
+
+    function formatGroup(group) {
+        return group.map(p =>
+            `• ${p.name}:\n${p.notes.map(e => `  - ${e.date}: ${e.notes} | ${e.recommendations}`).join("\n")}`
+        ).join("\n\n");
+    }
+
+    const prompt = `
+You are a warm, insightful, and professional clinical assistant 😊.
+
+We've organized follow-up notes from therapy sessions into distinct groups based on the collective progress of patients. For each group **that has data**, please write a detailed and empathetic summary describing:
+
+- The **key trends** and **common patterns** observed across the group,
+- Any **overall emotional, behavioral, or clinical shifts** noted,
+- General observations such as engagement level, treatment response, or recurring themes,
+- Where relevant, include any **noteworthy improvements, concerns, or therapeutic needs**,
+- Use a positive and encouraging tone with appropriate emojis 🌟💬📈⚠️💊,
+- Use **bullet points** to present the information clearly and professionally,
+- **Do not mention or personalize based on individual patient names or IDs**,
+- **Completely skip any group with no data** — do not mention it in the final report.
+
+This report should help clinicians and stakeholders understand group-level dynamics and areas for further attention or support.
+
+Here is the grouped data:
+
+${trendGroups.positive.length
+            ? `🌟 Positive Progress Group:\n${formatGroup(trendGroups.positive)}`
+            : ``
+        }
+
+${trendGroups.neutral.length
+            ? `😐 Neutral Progress Group:\n${formatGroup(trendGroups.neutral)}`
+            : ``
+        }
+
+${trendGroups.negative.length
+            ? `⚠️ Negative or Relapsing Group:\n${formatGroup(trendGroups.negative)}`
+            : ``
+        }
+
+${trendGroups.missed.length
+            ? `📌 Missed Sessions Group:\n${formatGroup(trendGroups.missed)}`
+            : ``
+        }
+
+${trendGroups.medication.length
+            ? `💊 Medication or Special Recommendation Group:\n${formatGroup(trendGroups.medication)}`
+            : ``
+        }
+`;
+
+    try {
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-001:generateContent?key=${API_KEY}`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }]
+                })
+            }
+        );
+
+        const data = await response.json();
+
+        const aiResponse = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!aiResponse) {
+            return res.status(500).json({ message: "Invalid response from Gemini API", data });
+        }
+
+        res.json({ trendSummary: aiResponse });
+    } catch (error) {
+        console.error("Error analyzing trends with Gemini:", error);
+        res.status(500).json({ message: "Error analyzing trends with Gemini", error: error.message });
     }
 });
 

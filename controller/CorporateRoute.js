@@ -821,52 +821,11 @@ CorporateRoute.get("/:companyCode/clinical-impact", async (req, res) => {
       }
 
       console.log("Follow Up Details=>", JSON.stringify(followUpDetails, null, 2));
-
-      const trendGroups = {
-        positive: [],
-        neutral: [],
-        negative: [],
-        missed: [],
-        medication: [],
-      };
-      
-      // Helper to group entries by patient name
-      function addToGroup(group, name, entry) {
-        const existing = group.find(p => p.name === name);
-        if (existing) {
-          existing.notes.push(entry);
-        } else {
-          group.push({ name, notes: [entry] });
-        }
-      }
-      
-      for (const patient of followUpDetails) {
-        for (const entry of patient.entries) {
-          const name = entry.name || "Anonymous";
-          const combinedText = `${entry.notes} ${entry.recommendations}`.toLowerCase();
-      
-          if (combinedText.includes("better") || combinedText.includes("calmer") || combinedText.includes("improved")) {
-            addToGroup(trendGroups.positive, name, entry);
-          } else if (combinedText.includes("no change") || combinedText.includes("same")) {
-            addToGroup(trendGroups.neutral, name, entry);
-          } else if (combinedText.includes("worse") || combinedText.includes("anxious") || combinedText.includes("relapse")) {
-            addToGroup(trendGroups.negative, name, entry);
-          } else if (combinedText.includes("missed") || combinedText.includes("did not attend")) {
-            addToGroup(trendGroups.missed, name, entry);
-          }
-      
-          if (combinedText.includes("medication") || combinedText.includes("prescribed")) {
-            addToGroup(trendGroups.medication, name, entry);
-          }
-        }
-      }
-      
-      console.log("Logging trend Groups=>", JSON.stringify(trendGroups, null, 2));
       
       const geminiResponse = await fetch("https://backend-xhl4.onrender.com/GeminiRoute/analyze-trends", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trendGroups }),
+        body: JSON.stringify({ followUpDetails }),  // ← replace trendGroups with followUpDetails
       });
       
       const geminiData = await geminiResponse.json();

@@ -290,60 +290,33 @@ ${JSON.stringify(screeningData, null, 2)}
 });
 
 GeminiRoute.post("/analyze-trends", async (req, res) => {
-    const { trendGroups } = req.body;
+    const { followUpDetails } = req.body;
 
-    if (!trendGroups) {
-        return res.status(400).json({ message: "trendGroups is required." });
+    if (!followUpDetails) {
+        return res.status(400).json({ message: "followUpDetails is required." });
     }
 
-    function formatGroup(group) {
-        return group.map(p =>
-            `• ${p.name}:\n${p.notes.map(e => `  - ${e.date}: ${e.notes} | ${e.recommendations}`).join("\n")}`
-        ).join("\n\n");
-    }
+    const formatted = followUpDetails.map(patient => {
+        return patient.entries.map(entry => {
+            return `• Date: ${entry.date}\n  Notes: ${entry.notes}\n  Recommendations: ${entry.recommendations}`;
+        }).join("\n");
+    }).join("\n\n");
 
     const prompt = `
-You are a warm, insightful, and professional clinical assistant 😊.
+You are a professional, warm, and insightful mental health assistant.
 
-We've organized follow-up notes from therapy sessions into distinct groups based on the collective progress of patients. For each group **that has data**, please write a detailed and empathetic summary describing:
+Below are follow-up therapy session notes from various patients. Please review the content and provide a **concise, insightful summary** that:
 
-- The **key trends** and **common patterns** observed across the group,
-- Any **overall emotional, behavioral, or clinical shifts** noted,
-- General observations such as engagement level, treatment response, or recurring themes,
-- Where relevant, include any **noteworthy improvements, concerns, or therapeutic needs**,
-- Use a positive and encouraging tone with appropriate emojis 🌟💬📈⚠️💊,
-- Use **bullet points** to present the information clearly and professionally,
-- **Do not mention or personalize based on individual patient names or IDs**,
-- **Completely skip any group with no data** — do not mention it in the final report.
+- Identifies **common emotional or behavioral trends**,
+- Notes any **shifts in mood, treatment progress, or recurring challenges**,
+- Offers a brief **clinical-level overview** of themes like engagement, medication, missed sessions, or recovery,
+- Highlights **positive outcomes or concerns** clearly,
+- Uses a supportive and empathetic tone with **relevant emojis** like 🌱📉💊📈⚠️,
+- Format the output with **clear bullet points**.
 
-This report should help clinicians and stakeholders understand group-level dynamics and areas for further attention or support.
+Here are the entries:
 
-Here is the grouped data:
-
-${trendGroups.positive.length
-            ? `🌟 Positive Progress Group:\n${formatGroup(trendGroups.positive)}`
-            : ``
-        }
-
-${trendGroups.neutral.length
-            ? `😐 Neutral Progress Group:\n${formatGroup(trendGroups.neutral)}`
-            : ``
-        }
-
-${trendGroups.negative.length
-            ? `⚠️ Negative or Relapsing Group:\n${formatGroup(trendGroups.negative)}`
-            : ``
-        }
-
-${trendGroups.missed.length
-            ? `📌 Missed Sessions Group:\n${formatGroup(trendGroups.missed)}`
-            : ``
-        }
-
-${trendGroups.medication.length
-            ? `💊 Medication or Special Recommendation Group:\n${formatGroup(trendGroups.medication)}`
-            : ``
-        }
+${formatted}
 `;
 
     try {
@@ -359,17 +332,12 @@ ${trendGroups.medication.length
         );
 
         const data = await response.json();
+        const geminiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "No summary generated.";
 
-        const aiResponse = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (!aiResponse) {
-            return res.status(500).json({ message: "Invalid response from Gemini API", data });
-        }
-
-        res.json({ trendSummary: aiResponse });
+        res.json({ trendSummary: geminiText });
     } catch (error) {
-        console.error("Error analyzing trends with Gemini:", error);
-        res.status(500).json({ message: "Error analyzing trends with Gemini", error: error.message });
+        console.error("Gemini API error:", error);
+        res.status(500).json({ message: "Failed to generate summary." });
     }
 });
 

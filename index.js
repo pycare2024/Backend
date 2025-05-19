@@ -1,7 +1,7 @@
 
 const express=require("express");
 const mongoose=require("mongoose");
-const patientRoute=require("./controller/patientRoute");
+const patientRoute = require("./controller/patientRoute");
 const AdminRoute=require("./controller/AdminRoute");
 const DoctorRoute=require("./controller/DoctorRoute");
 const QueryRoute=require("./controller/QueryRoute");

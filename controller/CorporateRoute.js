@@ -8,6 +8,7 @@ const { DEFAULT_CIPHERS } = require("tls");
 const ScreeningTestSchema = require("../model/NewScreeningTestSchema");
 const AppointmentRecords = require("../model/AppointmentRecordsSchema");
 const AppointmentRecordsSchema = require("../model/AppointmentRecordsSchema");
+const NewScreeningTestSchema = require("../model/NewScreeningTestSchema");
 
 const WATI_API_URL = "https://live-mt-server.wati.io/387357/api/v2/sendTemplateMessage";
 const WATI_API_KEY = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhZmY3OWIzZC0wY2FjLTRlMjEtOThmZC1hNTExNGQyYzBlOTEiLCJ1bmlxdWVfbmFtZSI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsIm5hbWVpZCI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsImVtYWlsIjoiY29udGFjdHVzQHBzeS1jYXJlLmluIiwiYXV0aF90aW1lIjoiMDEvMDEvMjAyNSAwNTo0NzoxOCIsInRlbmFudF9pZCI6IjM4NzM1NyIsImRiX25hbWUiOiJtdC1wcm9kLVRlbmFudHMiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBRE1JTklTVFJBVE9SIiwiZXhwIjoyNTM0MDIzMDA4MDAsImlzcyI6IkNsYXJlX0FJIiwiYXVkIjoiQ2xhcmVfQUkifQ.e4BgIPZN_WI1RU4VkLoyBAndhzW8uKntWnhr4K-J9K0"; // Replace with actual token
@@ -821,13 +822,13 @@ CorporateRoute.get("/:companyCode/clinical-impact", async (req, res) => {
       }
 
       console.log("Follow Up Details=>", JSON.stringify(followUpDetails, null, 2));
-      
+
       const geminiResponse = await fetch("https://backend-xhl4.onrender.com/GeminiRoute/analyze-trends", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ followUpDetails }),  // ← replace trendGroups with followUpDetails
       });
-      
+
       const geminiData = await geminiResponse.json();
       trendSummary = geminiData.trendSummary || "No summary available.";
     }
@@ -847,6 +848,147 @@ CorporateRoute.get("/:companyCode/clinical-impact", async (req, res) => {
   } catch (error) {
     console.error("Clinical impact fetch error:", error);
     res.status(500).json({ message: "Failed to fetch clinical impact data", error: error.message });
+  }
+});
+
+const categorizeScore = (tool, score) => {
+  const categories = {
+    "PHQ-9": [
+      [0, 4, "Minimal"],
+      [5, 9, "Mild"],
+      [10, 14, "Moderate"],
+      [15, 19, "Moderately Severe"],
+      [20, 27, "Severe"]
+    ],
+    "BDI-II": [
+      [0, 13, "Minimal"],
+      [14, 19, "Mild"],
+      [20, 28, "Moderate"],
+      [29, 63, "Severe"]
+    ],
+    "GAD-7": [
+      [0, 4, "Minimal"],
+      [5, 9, "Mild"],
+      [10, 14, "Moderate"],
+      [15, 21, "Severe"]
+    ],
+    "BAI": [
+      [0, 7, "Minimal"],
+      [8, 15, "Mild"],
+      [16, 25, "Moderate"],
+      [26, 63, "Severe"]
+    ],
+    "ISI": [
+      [0, 7, "No issues"],
+      [8, 14, "Subthreshold"],
+      [15, 21, "Moderate"],
+      [22, 28, "Severe"]
+    ],
+    "PCL-5": [
+      [0, 32, "Not Clinically Significant"],
+      [33, 80, "Clinically Significant"]
+    ]
+    // Add Y-BOCS-II etc. as needed
+  };
+
+  const toolCategories = categories[tool];
+  if (!toolCategories) return "Unknown";
+
+  for (const [min, max, label] of toolCategories) {
+    if (score >= min && score <= max) return label;
+  }
+
+  return "Unknown";
+};
+
+CorporateRoute.post("/summary-per-patient", async (req, res) => {
+  const { companyCode, startDate, endDate } = req.body;
+
+  if (!companyCode || !startDate || !endDate) {
+    return res.status(400).json({ error: "Missing required fields." });
+  }
+
+  try {
+    const records = await NewScreeningTestSchema.find({
+      companyCode,
+      DateOfTest: {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      }
+    });
+
+    const patientMap = new Map();
+
+    records.forEach(record => {
+      const patientId = record.patient_id.toString();
+
+      if (!patientMap.has(patientId)) {
+        patientMap.set(patientId, { patient_id: patientId });
+      }
+
+      const patientData = patientMap.get(patientId);
+
+      const rawScores = record.scores instanceof Map
+        ? Object.fromEntries(record.scores)
+        : record.scores;
+
+      for (const [tool, score] of Object.entries(rawScores)) {
+        if (typeof score !== 'number') continue;
+
+        const category = categorizeScore(tool, score);
+        if (!category) continue;
+
+        if (!patientData[category]) {
+          patientData[category] = 0;
+        }
+
+        patientData[category]++;
+      }
+    });
+
+    const result = Array.from(patientMap.values());
+
+    // ✅ ENRICH with patient details
+    const enriched = await Promise.all(
+      result.map(async entry => {
+        const patient = await patientSchema.findById(entry.patient_id).lean();
+        // console.log("patient=>",patient);
+        return {
+          ...entry,
+          name: patient?.Name || "Unknown",
+          phone: patient?.Mobile || "",
+        };
+      })
+    );
+
+    // ✅ SORT by Severe count
+    enriched.sort((a, b) => (b.Severe || 0) - (a.Severe || 0));
+
+    // ✅ Format output for frontend (optional, if you want consistent keys)
+    const allCategories = [
+      'Severe', 'Moderate', 'Mild', 'Minimal', 'Subthreshold',
+      'No issues', 'Unknown', 'Clinically Significant',
+      'Not Clinically Significant', 'Moderately Severe'
+    ];
+
+    const formatted = enriched.map(entry => {
+      const formattedEntry = {
+        patient_id: entry.patient_id,
+        name: entry.name,
+        phone: entry.phone,
+        email: entry.email
+      };
+      allCategories.forEach(cat => {
+        formattedEntry[cat] = entry[cat] || 0;
+      });
+      return formattedEntry;
+    });
+
+    res.json({ data: formatted });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
   }
 });
 

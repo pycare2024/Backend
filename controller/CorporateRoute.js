@@ -952,7 +952,7 @@ CorporateRoute.post("/summary-per-patient", async (req, res) => {
     const enriched = await Promise.all(
       result.map(async entry => {
         const patient = await patientSchema.findById(entry.patient_id).lean();
-        // console.log("patient=>",patient);
+        console.log("patient=>", patient);
         return {
           ...entry,
           name: patient?.Name || "Unknown",
@@ -991,5 +991,201 @@ CorporateRoute.post("/summary-per-patient", async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
+CorporateRoute.post("/categorize-overall-severity", async (req, res) => {
+  const { companyCode, startDate, endDate } = req.body;
+
+  if (!companyCode || !startDate || !endDate) {
+    return res.status(400).json({ message: "Missing companyCode or date range." });
+  }
+
+  try {
+    const screenings = await NewScreeningTestSchema.find({
+      company_code: companyCode,
+      DateOfTest: { $gte: new Date(startDate), $lte: new Date(endDate) }
+    });
+
+    const severityRanks = {
+      "minimal": 0,
+      "mild": 1,
+      "moderate": 2,
+      "moderately_severe": 3,
+      "severe": 4,
+      "extreme": 5
+    };
+
+    const toolSeverity = (tool, score) => {
+      if (tool === "PHQ-9") {
+        if (score <= 4) return "mild";
+        if (score <= 9) return "moderate";
+        if (score <= 14) return "moderately_severe";
+        return "severe";
+      } else if (tool === "BDI-II") {
+        if (score <= 13) return "mild";
+        if (score <= 19) return "moderate";
+        if (score <= 28) return "moderately_severe";
+        return "severe";
+      } else if (tool === "GAD-7") {
+        if (score <= 4) return "mild";
+        if (score <= 9) return "moderate";
+        if (score <= 14) return "moderately_severe";
+        return "severe";
+      } else if (tool === "BAI") {
+        if (score <= 7) return "mild";
+        if (score <= 15) return "moderate";
+        if (score <= 25) return "moderately_severe";
+        return "severe";
+      } else if (tool === "ISI") {
+        if (score <= 7) return "mild"; // No issues
+        if (score <= 14) return "moderate"; // Subthreshold
+        if (score <= 21) return "moderately_severe";
+        return "severe";
+      } else if (tool === "PCL-5") {
+        return score >= 33 ? "severe" : "mild"; // Rough mapping
+      } else if (tool === "Y-BOCS-II") {
+        if (score <= 7) return "mild"; // Subclinical
+        if (score <= 15) return "moderate";
+        if (score <= 23) return "moderately_severe";
+        return "severe";
+      }
+      return null;
+    };
+
+    // console.log("Screenings -> ",screenings);
+
+    const rankToLabel = Object.keys(severityRanks).reduce((obj, key) => {
+      obj[severityRanks[key]] = key;
+      return obj;
+    }, {});
+
+    // console.log("Rank to label->", rankToLabel);
+
+    // console.log("Severity Rank -> ",severityRanks[]);
+
+    const result = [];
+
+    for (const record of screenings) {
+      const { scores, patient_id } = record;
+
+      // console.log("scores->",scores,"patient_id->",patient_id);
+
+      let maxSeverityRank = -1;
+
+      if (scores && scores instanceof Map) {
+        const scoresObject = Object.fromEntries(scores);
+
+        // console.log("Scores object => ",scoresObject);
+
+        for (const tool in scoresObject) {
+          // console.log("tools->",tool);
+          const level = toolSeverity(tool, scoresObject[tool]);
+          // console.log("Level->", level, "severityRank of level->", severityRanks[level], "Max severity rank->", maxSeverityRank);
+          if (level && severityRanks[level] > maxSeverityRank) {
+            maxSeverityRank = severityRanks[level];
+          }
+        }
+      }
+
+      if (maxSeverityRank >= 0) {
+        result.push({
+          patient_id,
+          overallSeverity: rankToLabel[maxSeverityRank].replace(/_/g, ' ')
+        });
+      }
+    }
+
+    res.json({
+      evaluations: result,
+      count: result.length // Add count if you want to use it on frontend
+    });
+
+  } catch (error) {
+    console.error("Error categorizing severity:", error);
+    res.status(500).json({ message: "Internal Server Error", error: error.message });
+  }
+});
+
+// CorporateRoute.post("/categorize-overall-severity", async (req, res) => {
+//   const { companyCode, startDate, endDate } = req.body;
+
+//   if (!companyCode || !startDate || !endDate) {
+//     return res.status(400).json({ message: "Missing companyCode or date range." });
+//   }
+
+//   try {
+//     const screenings = await NewScreeningTestSchema.find({
+//       company_code: companyCode,
+//       DateOfTest: { $gte: new Date(startDate), $lte: new Date(endDate) }
+//     });
+
+//     // Group by patient_id and keep only the latest test
+//     const latestScreeningsMap = new Map();
+
+//     for (const screening of screenings) {
+//       const pid = screening.patient_id.toString();
+//       const current = latestScreeningsMap.get(pid);
+
+//       if (!current || new Date(screening.DateOfTest) > new Date(current.DateOfTest)) {
+//         latestScreeningsMap.set(pid, screening);
+//       }
+//     }
+
+//     const severityRanks = {
+//       "minimal": 0,
+//       "mild": 1,
+//       "moderate": 2,
+//       "moderately_severe": 3,
+//       "severe": 4,
+//       "extreme": 5
+//     };
+
+//     const toolSeverity = (tool, score) => {
+//       if (tool === "PHQ-9") return score <= 4 ? "mild" : score <= 9 ? "moderate" : score <= 14 ? "moderately_severe" : "severe";
+//       if (tool === "BDI-II") return score <= 13 ? "mild" : score <= 19 ? "moderate" : score <= 28 ? "moderately_severe" : "severe";
+//       if (tool === "GAD-7") return score <= 4 ? "mild" : score <= 9 ? "moderate" : score <= 14 ? "moderately_severe" : "severe";
+//       if (tool === "BAI") return score <= 7 ? "mild" : score <= 15 ? "moderate" : score <= 25 ? "moderately_severe" : "severe";
+//       if (tool === "ISI") return score <= 7 ? "mild" : score <= 14 ? "moderate" : score <= 21 ? "moderately_severe" : "severe";
+//       if (tool === "PCL-5") return score >= 33 ? "severe" : "mild";
+//       if (tool === "Y-BOCS-II") return score <= 7 ? "mild" : score <= 15 ? "moderate" : score <= 23 ? "moderately_severe" : "severe";
+//       return null;
+//     };
+
+//     const result = [];
+
+//     for (const [, record] of latestScreeningsMap.entries()) {
+//       const { scores, patient_id } = record;
+
+//       let maxSeverityRank = -1;
+
+//       if (scores && scores instanceof Map) {
+//         const scoresObject = Object.fromEntries(scores);
+
+//         for (const tool in scoresObject) {
+//           const level = toolSeverity(tool, scoresObject[tool]);
+//           const rank = severityRanks[level];
+//           if (level && rank > maxSeverityRank) {
+//             maxSeverityRank = rank;
+//           }
+//         }
+//       }
+
+//       if (maxSeverityRank >= 0) {
+//         result.push({
+//           patient_id,
+//           overallSeverity: Object.keys(severityRanks).find(key => severityRanks[key] === maxSeverityRank)
+//         });
+//       }
+//     }
+
+//     res.json({
+//       evaluations: result,
+//       count: result.length // Add count if you want to use it on frontend
+//     });
+
+//   } catch (error) {
+//     console.error("Error in categorize-overall-severity:", error);
+//     res.status(500).json({ message: "Internal server error", error: error.message });
+//   }
+// });
 
 module.exports = CorporateRoute;

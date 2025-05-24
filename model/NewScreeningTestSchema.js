@@ -3,17 +3,27 @@ const { ObjectId } = mongoose.Schema.Types;
 
 const NewScreeningTestSchema = new mongoose.Schema({
   patient_id: { type: ObjectId, required: true },
+
   scores: {
-    type: Map, // dynamic map of instrument → score
+    type: Map,
     of: Number
   },
+
   DateOfTest: { type: Date, default: Date.now },
   report: { type: String },
 
-  // 🔵 New fields
   companyCode: { type: String, default: null },
-  department: { type: String, default: null }
+  department: { type: String, default: null },
 
+  responses: {
+    type: Map,
+    of: [
+      {
+        question: { type: String, required: true },
+        answer: { type: String, required: true }
+      }
+    ]
+  }
 }, {
   collection: "NewScreeningTestRecords"
 });

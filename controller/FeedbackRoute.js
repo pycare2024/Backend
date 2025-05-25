@@ -16,7 +16,7 @@ FeedbackRoute.get("/appointments-without-feedback/:patientId", async (req, res) 
 
     const appointments = await AppointmentRecordsSchema.find({
       patient_id: patientId,
-      status: "completed",
+      appointment_status: "completed",
       feedbackGiven: false
     }).sort({ date: -1 }); // most recent first
 

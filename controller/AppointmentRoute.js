@@ -792,6 +792,30 @@ AppointmentRoute.post("/markCompleted/:appointmentId", async (req, res) => {
             }
         }
 
+        if (patientPhoneNumber) {
+            try {
+                const whatsappResponse = await fetch(`${WATI_API_URL}?whatsappNumber=91${patientPhoneNumber}`, {
+                    method: "POST",
+                    headers: {
+                        Authorization: WATI_API_KEY,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        template_name: "srs_feedback_form",
+                        broadcast_name: "feedbackform",
+                        parameters: [
+                            { name: "name", value: patientName },
+                        ]
+                    })
+                });
+
+                const whatsappResult = await whatsappResponse.json();
+                console.log("\u{1F4E4} WhatsApp message sent:", whatsappResult);
+            } catch (err) {
+                console.error("\u{274C} WhatsApp sending failed:", err);
+            }
+        }
+
         res.status(200).json({
             message: "Appointment marked as completed and doctor credited.",
             appointment

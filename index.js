@@ -19,6 +19,7 @@ const OperatorRoute = require("./controller/OperatorRoute");
 const autoCancelAppointment = require("./Utility/autoCancelAppointment");
 const CorporateRoute = require("./controller/CorporateRoute");
 const EmailRoute = require("./controller/EmailRoute");
+const FeedbackRoute = require("./controller/FeedbackRoute");
 
 
 dotenv.config();
@@ -54,6 +55,7 @@ app.use("/PaymentRoute",PaymentRoute);
 app.use("/OperatorRoute",OperatorRoute);
 app.use("/CorporateRoute",CorporateRoute);
 app.use("/EmailRoute",EmailRoute);
+app.use("/FeedbackRoute",FeedbackRoute);
 
 app.listen(4000,()=>{
     console.log("Server started at 4000");

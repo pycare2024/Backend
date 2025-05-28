@@ -15,6 +15,7 @@ const DoctorAccountsSchema = require("../model/DoctorAccountsSchema");
 const DoctorTransactionsSchema = require("../model/DoctorTransactionsSchema");
 const InitiateRefund = require("../Utility/InitiateRefund");
 const Corporate = require("../model/CorporateSchema");
+const CorporateSchema = require("../model/CorporateSchema");
 
 
 const WATI_API_URL = "https://live-mt-server.wati.io/387357/api/v2/sendTemplateMessage";
@@ -916,71 +917,122 @@ AppointmentRoute.post("/cancelAndRefund/:appointmentId", async (req, res) => {
     try {
         const { appointmentId } = req.params;
 
+        // 1. Fetch appointment
         const appointment = await AppointmentRecordsSchema.findById(appointmentId);
         if (!appointment) {
             return res.status(404).json({ message: "Appointment not found." });
-        }
-
-        if (appointment.payment_status !== "confirmed") {
-            return res.status(400).json({ message: "Refund cannot be processed. Payment is not confirmed." });
         }
 
         if (appointment.appointment_status === "cancelled") {
             return res.status(400).json({ message: "Appointment is already cancelled." });
         }
 
-        // ✅ Refund via Razorpay
-        const refund = await InitiateRefund(appointment.payment_id);
-
-        // ✅ Update DB
-        appointment.appointment_status = "cancelled";
-        appointment.payment_status = "refunded";
-        appointment.refund_id = refund.id;
-        appointment.cancellation_reason = "Cancelled by Admin";
-        await appointment.save();
-
-        // ✅ Send WhatsApp notification via WATI
-        const patientPhone = appointment.patientPhoneNumber;
-        const patientName = appointment.patientName;
-        const doctor = await DoctorSchema.findById(appointment.doctor_id);
-
-        if (patientPhone && doctor) {
-            const formattedDate = new Date(appointment.DateOfAppointment).toLocaleDateString("en-IN", {
-                day: "2-digit",
-                month: "short",
-                year: "numeric"
-            });
-
-            const payload = {
-                template_name: "payment_refund",
-                broadcast_name: "Doctor_Cancelled_Refund",
-                parameters: [
-                    { name: "patient_name", value: patientName },
-                    { name: "doctor_name", value: doctor.Name },
-                    { name: "date", value: formattedDate },
-                    { name: "time", value: appointment.AppStartTime }
-                ]
-            };
-
-            const whatsappResponse = await fetch(`${WATI_API_URL}?whatsappNumber=91${patientPhone}`, {
-                method: "POST",
-                headers: {
-                    "Authorization": WATI_API_KEY,
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify(payload)
-            });
-
-            const data = await whatsappResponse.json();
-            if (!whatsappResponse.ok) {
-                console.error("Failed to send WhatsApp message:", data);
-            }
+        // 2. Fetch patient to get userType
+        const patient = await patientSchema.findById(appointment.patient_id);
+        if (!patient) {
+            return res.status(404).json({ message: "Patient not found." });
         }
 
-        res.status(200).json({ message: "Appointment cancelled and refund initiated.", refund });
+        // 3. Retail flow
+        if (patient.userType === "retail") {
+            if (!appointment.payment_id || appointment.payment_status !== "confirmed") {
+                return res.status(400).json({ message: "Refund cannot be processed. Payment is not confirmed or missing." });
+            }
+
+            const refund = await InitiateRefund(appointment.payment_id);
+
+            appointment.appointment_status = "cancelled";
+            appointment.payment_status = "refunded";
+            appointment.refund_id = refund.id;
+            appointment.cancellation_reason = "Cancelled by Admin";
+            await appointment.save();
+
+            // Send WhatsApp
+            const doctor = await DoctorSchema.findById(appointment.doctor_id);
+            if (appointment.patientPhoneNumber && doctor) {
+                const formattedDate = new Date(appointment.DateOfAppointment).toLocaleDateString("en-IN", {
+                    day: "2-digit", month: "short", year: "numeric"
+                });
+
+                const payload = {
+                    template_name: "payment_refund",
+                    broadcast_name: "Doctor_Cancelled_Refund",
+                    parameters: [
+                        { name: "patient_name", value: appointment.patientName },
+                        { name: "doctor_name", value: doctor.Name },
+                        { name: "date", value: formattedDate },
+                        { name: "time", value: appointment.AppStartTime }
+                    ]
+                };
+
+                await fetch(`${WATI_API_URL}?whatsappNumber=91${appointment.patientPhoneNumber}`, {
+                    method: "POST",
+                    headers: {
+                        "Authorization": WATI_API_KEY,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(payload)
+                });
+            }
+
+            return res.status(200).json({ message: "Retail appointment cancelled and refund initiated.", refund });
+        }
+
+        // 4. Corporate flow
+        if (patient.userType === "corporate") {
+            const corporate = await CorporateSchema.findOne({ companyCode: patient.companyCode });
+            if (!corporate) {
+                return res.status(404).json({ message: "Corporate record not found." });
+            }
+
+            corporate.credits += 1;
+            corporate.refundHistory.push({
+                credits: 1,
+                appointmentId: appointment._id,
+                reason: "Appointment cancelled"
+            });
+            await corporate.save();
+
+            appointment.appointment_status = "cancelled";
+            appointment.cancellation_reason = "Cancelled by Admin";
+            await appointment.save();
+
+            const doctor = await DoctorSchema.findById(appointment.doctor_id);
+            if (appointment.patientPhoneNumber && doctor) {
+                const formattedDate = new Date(appointment.DateOfAppointment).toLocaleDateString("en-IN", {
+                    day: "2-digit", month: "short", year: "numeric"
+                });
+
+                const payload = {
+                    template_name: "corporate_appointment_refund",
+                    broadcast_name: "Doctor_Cancelled_Refund_Corporate",
+                    parameters: [
+                        { name: "patient_name", value: appointment.patientName },
+                        { name: "emp_id", value: patient.empId },
+                        { name: "doctor_name", value: doctor.Name },
+                        { name: "date", value: formattedDate },
+                        { name: "time", value: appointment.AppStartTime }
+                    ]
+                };
+
+                await fetch(`${WATI_API_URL}?whatsappNumber=91${appointment.patientPhoneNumber}`, {
+                    method: "POST",
+                    headers: {
+                        "Authorization": WATI_API_KEY,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(payload)
+                });
+            }
+
+            return res.status(200).json({ message: "Corporate appointment cancelled and credit restored." });
+        }
+
+        return res.status(400).json({ message: "Invalid user type." });
+
     } catch (error) {
-        console.error("Refund error:", error);
-        res.status(500).json({ message: "Error processing refund", error: error.message });
+        console.error("Cancellation/refund error:", error);
+        res.status(500).json({ message: "Internal server error", error: error.message });
     }
 });
 

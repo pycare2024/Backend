@@ -55,6 +55,8 @@ AppointmentRoute.get("/doctor-appointments", async (req, res) => {
             .sort({ DateOfAppointment: 1 }) // Sort by date
             .lean();
 
+            // console.log("Appointments->",appointments);
+
         res.status(200).json({ success: true, appointments });
     } catch (error) {
         console.error("Error fetching appointments:", error);
@@ -272,7 +274,10 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
         const DofAppt = appointmentData.DateOfAppointment.toDateString();
         const apptTime = appointmentData.AppStartTime;
         const DoctorName = doctor?.Name || "Doctor";
+        const DoctorPhNo = doctor?.Mobile || "12345";
         const clinicName = "PsyCare";
+
+        console.log("Doctor mobile Number->",DoctorPhNo);
 
         if (userType === "corporate") {
             console.log("Corporate booking detected");
@@ -351,6 +356,28 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
                                 name: "link",
                                 value: "Your appointment has been confirmed and covered under your company’s package. No payment is required. ✅"
                             }
+                        ]
+                    })
+                });
+            }
+
+            const timeSlot = `${selectedSlot.startTime} - ${selectedSlot.endTime}`;
+
+            if (DoctorPhNo) {
+                await fetch(`${WATI_API_URL}?whatsappNumber=91${DoctorPhNo}`, {
+                    method: "POST",
+                    headers: {
+                        Authorization: WATI_API_KEY,
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        template_name: "new_appointment_notification_to_doctor",
+                        broadcast_name: "appointment_notification_to_doctor",
+                        parameters: [
+                            { name: "Doctor_Name", value: DoctorName },
+                            { name: "Patient_Name", value: patientName },
+                            { name: "Date", value: DofAppt },
+                            { name: "Time_Slot", value: timeSlot }
                         ]
                     })
                 });

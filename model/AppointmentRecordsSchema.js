@@ -27,7 +27,8 @@ const AppointmentRecordsSchema = new mongoose.Schema({
     "isPaidToDoctor": { type: Boolean, default: false },
     "notes": { type: String, default: "" },
     "recommendations": { type: String, default: "" }, 
-    "feedbackGiven": { type: Boolean, default: false }  
+    "feedbackGiven": { type: Boolean, default: false },
+    "ORSGiven": { type: Boolean, default: false }    
 }, {
     collection: "AppointmentRecords"
 });

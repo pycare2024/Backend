@@ -6,6 +6,7 @@ const SRS = require("../model/SRS");
 const ORSSchema = require("../model/ORSSchema");
 const CorporateSchema = require("../model/CorporateSchema");
 const PatientSchema = require("../model/patientSchema");
+const GAFSchema = require("../model/GAFSchema");
 
 const WATI_API_URL = "https://live-mt-server.wati.io/387357/api/v2/sendTemplateMessage";
 const WATI_API_KEY = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhZmY3OWIzZC0wY2FjLTRlMjEtOThmZC1hNTExNGQyYzBlOTEiLCJ1bmlxdWVfbmFtZSI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsIm5hbWVpZCI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsImVtYWlsIjoiY29udGFjdHVzQHBzeS1jYXJlLmluIiwiYXV0aF90aW1lIjoiMDEvMDEvMjAyNSAwNTo0NzoxOCIsInRlbmFudF9pZCI6IjM4NzM1NyIsImRiX25hbWUiOiJtdC1wcm9kLVRlbmFudHMiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBRE1JTklTVFJBVE9SIiwiZXhwIjoyNTM0MDIzMDA4MDAsImlzcyI6IkNsYXJlX0FJIiwiYXVkIjoiQ2xhcmVfQUkifQ.e4BgIPZN_WI1RU4VkLoyBAndhzW8uKntWnhr4K-J9K0"; // Replace with actual token
@@ -253,6 +254,21 @@ FeedbackRoute.post('/sendFeedbackForms', async (req, res) => {
     console.error('Error in sending feedback forms:', err);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+FeedbackRoute.post('/submit-gaf', async (req, res) => {
+  const { patientId, patientName, gafScore, description, date } = req.body;
+
+  const newRecord = new GAFSchema({
+    patientId,
+    patientName,
+    gafScore,
+    description,
+    date,
+  });
+
+  await newRecord.save();
+  res.json({ success: true, message: 'GAF Feedback recorded.' });
 });
 
 module.exports = FeedbackRoute;

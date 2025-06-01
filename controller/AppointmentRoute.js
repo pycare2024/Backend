@@ -55,7 +55,7 @@ AppointmentRoute.get("/doctor-appointments", async (req, res) => {
             .sort({ DateOfAppointment: 1 }) // Sort by date
             .lean();
 
-            // console.log("Appointments->",appointments);
+        // console.log("Appointments->",appointments);
 
         res.status(200).json({ success: true, appointments });
     } catch (error) {
@@ -277,7 +277,7 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
         const DoctorPhNo = doctor?.Mobile || "12345";
         const clinicName = "PsyCare";
 
-        console.log("Doctor mobile Number->",DoctorPhNo);
+        // console.log("Doctor mobile Number->",DoctorPhNo);
 
         if (userType === "corporate") {
             console.log("Corporate booking detected");
@@ -714,7 +714,7 @@ AppointmentRoute.get("/doctor-appointments-range", async (req, res) => {
 AppointmentRoute.post("/markCompleted/:appointmentId", async (req, res) => {
     try {
         const { appointmentId } = req.params;
-        const { notes, recommendations } = req.body;
+        const { notes, recommendations, followUpRecommended } = req.body;
 
         if (!notes || notes.trim() === "") {
             return res.status(400).json({ message: "Notes are required to complete the session." });
@@ -727,6 +727,7 @@ AppointmentRoute.post("/markCompleted/:appointmentId", async (req, res) => {
 
         appointment.notes = notes;
         appointment.recommendations = recommendations || "";
+        appointment.followUpRecommended = followUpRecommended || false;
 
         if (!appointment.session_started || !appointment.session_start_time) {
             return res.status(400).json({ message: "Session has not been started yet." });
@@ -735,11 +736,11 @@ AppointmentRoute.post("/markCompleted/:appointmentId", async (req, res) => {
         const sessionStart = new Date(appointment.session_start_time);
         const currentTime = new Date();
         const twentyMinutesLater = new Date(sessionStart.getTime() + 20 * 60000);
-        if (currentTime < twentyMinutesLater) {
-            return res.status(400).json({
-                message: "You can only mark the appointment as completed after 20 minutes of session start time."
-            });
-        }
+        // if (currentTime < twentyMinutesLater) {
+        //     return res.status(400).json({
+        //         message: "You can only mark the appointment as completed after 20 minutes of session start time."
+        //     });
+        // }
 
         appointment.appointment_status = "completed";
 
@@ -1012,7 +1013,7 @@ AppointmentRoute.post("/cancelAndRefund/:appointmentId", async (req, res) => {
                 return res.status(404).json({ message: "Corporate record not found." });
             }
 
-            corporate.credits += 1;
+            corporate.totalCredits += 1;
             corporate.refundHistory.push({
                 credits: 1,
                 appointmentId: appointment._id,

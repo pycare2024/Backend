@@ -441,6 +441,246 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
     }
 });
 
+AppointmentRoute.post("/bookFollowUpAppointment", async (req, res) => {
+    try {
+
+        console.log("Req body->",req.body);
+        const { selectedDate, patient_id, preferredTime, userType, empId, companyCode, doctor_id, previousAppointmentId } = req.body;
+
+        if (!selectedDate || !patient_id || !preferredTime || !doctor_id) {
+            return res.status(400).json({ message: "All fields are required." });
+        }
+
+        const appointmentDate = new Date(selectedDate);
+        if (isNaN(appointmentDate)) return res.status(400).json({ message: "Invalid date format." });
+
+        const existingAppointment = await AppointmentRecordsSchema.findOne({
+            patient_id,
+            DateOfAppointment: appointmentDate,
+        });
+        if (existingAppointment) {
+            return res.status(409).json({
+                message: "You already have an appointment booked for this date.",
+                appointmentDetails: existingAppointment,
+            });
+        }
+
+        let timeFilter = {};
+        if (preferredTime === "morning") timeFilter = { "Slots.startTime": { $gte: "09:00", $lt: "12:00" } };
+        else if (preferredTime === "afternoon") timeFilter = { "Slots.startTime": { $gte: "12:00", $lt: "16:00" } };
+        else if (preferredTime === "evening") timeFilter = { "Slots.startTime": { $gte: "16:00", $lt: "21:00" } };
+        else return res.status(400).json({ message: "Invalid preferredTime." });
+
+        const doctorSchedule = await DoctorScheduleSchema.findOne({
+            Date: appointmentDate,
+            doctor_id,
+            SlotsAvailable: { $gt: 0 },
+            "Slots.isBooked": false,
+            ...timeFilter,
+        });
+
+        if (!doctorSchedule) {
+            return res.status(404).json({ message: "The selected doctor has no available slots for the chosen time." });
+        }
+
+        const selectedSlot = doctorSchedule.Slots.find(s => !s.isBooked && s.startTime >= timeFilter["Slots.startTime"].$gte);
+
+        if (!selectedSlot) return res.status(500).json({ message: "No available slot found for the selected doctor." });
+
+        const patient = await patientSchema.findById(patient_id);
+        if (!patient) return res.status(404).json({ message: "Patient not found." });
+
+        const appointmentData = {
+            patient_id,
+            patientName: patient.Name,
+            patientPhoneNumber: patient.Mobile,
+            doctorScheduleId: doctorSchedule._id,
+            doctor_id,
+            DateOfAppointment: appointmentDate,
+            AppStartTime: selectedSlot.startTime,
+            AppEndTime: selectedSlot.endTime,
+            WeekDay: doctorSchedule.WeekDay,
+            payment_status: userType === "corporate" ? "confirmed" : "pending",
+            userType,
+            empId: userType === "corporate" ? empId : undefined,
+            companyCode: userType === "corporate" ? companyCode : undefined,
+            isFollowUp: true,
+            linkedToAppointmentId: previousAppointmentId
+        };
+
+        const doctor = await DoctorSchema.findById(doctor_id);
+        const patientName = patient.Name;
+        const phone = patient.Mobile;
+        const DofAppt = appointmentData.DateOfAppointment.toDateString();
+        const apptTime = appointmentData.AppStartTime;
+        const DoctorName = doctor?.Name || "Doctor";
+        const DoctorPhNo = doctor?.Mobile || "12345";
+        const clinicName = "PsyCare";
+
+        if (userType === "corporate") {
+
+            console.log("Corporate booking detected");
+            console.log("Patient book follow Up Appointment,  patient id->", patient_id);
+
+            const company = await Corporate.findOne({ companyCode });
+            if (!company) return res.status(404).json({ message: "Company not found." });
+
+            if (company.totalCredits <= 0) {
+                return res.status(403).json({ message: "Insufficient credits in company account." });
+            }
+
+            console.log("✅ Deducting credit for:", companyCode);
+            company.totalCredits -= 1;
+            await company.save();
+
+            const meetingLink = generateJitsiMeetingLink();
+            appointmentData.meeting_link = meetingLink;
+
+            const savedAppointment = await new AppointmentRecordsSchema(appointmentData).save();
+
+            await DoctorScheduleSchema.updateOne(
+                {
+                    _id: doctorSchedule._id,
+                    "Slots.startTime": selectedSlot.startTime,
+                    "Slots.isBooked": false
+                },
+                {
+                    $set: {
+                        "Slots.$.isBooked": true,
+                        "Slots.$.bookedBy": patient_id
+                    },
+                    $inc: { SlotsAvailable: -1 }
+                }
+            );
+
+            const corporate = await Corporate.findOneAndUpdate(
+                {
+                    companyCode: companyCode,
+                    "associatedPatients.empId": empId,   // very important: match empId (employee only)
+                },
+                {
+                    $push: {
+                        "associatedPatients.$.visits": {
+                            date: appointmentDate,
+                            purpose: "Follow up Appointment"  // or save from frontend if dynamic
+                        }
+                    }
+                },
+                { new: true }
+            );
+
+            if (!corporate) {
+                console.error("Employee not found inside corporate during visit update.");
+            } else {
+                console.log("✅ Visit successfully added to employee record");
+            }
+
+            if (phone) {
+                await fetch(`${WATI_API_URL}?whatsappNumber=91${phone}`, {
+                    method: "POST",
+                    headers: {
+                        Authorization: WATI_API_KEY,
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        template_name: "appointment_details",
+                        broadcast_name: "CorporateFollowupConfirm",
+                        parameters: [
+                            { name: "name", value: patientName },
+                            { name: "appointment_date", value: DofAppt },
+                            { name: "appointment_time", value: apptTime },
+                            { name: "doctor_name", value: DoctorName },
+                            { name: "clinic_name", value: clinicName },
+                            { name: "payment_id", value: "Corporate Package" },
+                            {
+                                name: "link",
+                                value: "Your follow-up is confirmed and covered under your company’s package. ✅"
+                            }
+                        ]
+                    })
+                });
+            }
+
+            const timeSlot = `${selectedSlot.startTime} - ${selectedSlot.endTime}`;
+
+            if (DoctorPhNo) {
+                await fetch(`${WATI_API_URL}?whatsappNumber=91${DoctorPhNo}`, {
+                    method: "POST",
+                    headers: {
+                        Authorization: WATI_API_KEY,
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        template_name: "new_appointment_notification_to_doctor",
+                        broadcast_name: "appointment_notification_to_doctor",
+                        parameters: [
+                            { name: "Doctor_Name", value: DoctorName },
+                            { name: "Patient_Name", value: patientName },
+                            { name: "Date", value: DofAppt },
+                            { name: "Time_Slot", value: timeSlot }
+                        ]
+                    })
+                });
+            }
+
+            return res.status(200).json({
+                message: `Follow-up booked successfully with Dr. ${DoctorName} (corporate).`,
+                appointmentDetails: appointmentData,
+                doctorName: DoctorName,
+                remainingCredits: company.totalCredits
+            });
+        }
+
+        // Retail
+        const savedAppointment = await new AppointmentRecordsSchema(appointmentData).save();
+
+        const paymentLinkResponse = await razorpay.paymentLink.create({
+            amount: 100,
+            currency: "INR",
+            accept_partial: false,
+            description: "Appointment Booking Fee",
+            notify: { sms: true },
+            reference_id: `appointment_${savedAppointment._id}`,
+            notes: { appointment_id: savedAppointment._id.toString(), patient_id },
+        });
+
+        await AppointmentRecordsSchema.updateOne(
+            { _id: savedAppointment._id },
+            { $set: { payment_link_id: paymentLinkResponse.id } }
+        );
+
+        const uniquePaymentCode = paymentLinkResponse.short_url.split("/").pop();
+        if (phone) {
+            await fetch(`${WATI_API_URL}?whatsappNumber=91${phone}`, {
+                method: "POST",
+                headers: {
+                    Authorization: WATI_API_KEY,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    template_name: "payment_link",
+                    broadcast_name: "PaymentLinkBroadcast",
+                    parameters: [
+                        { name: "1", value: patientName },
+                        { name: "2", value: uniquePaymentCode }
+                    ]
+                }),
+            });
+        }
+
+        return res.status(200).json({
+            message: `Follow-up booked with Dr. ${DoctorName} (retail).`,
+            appointmentDetails: savedAppointment,
+            doctorName: DoctorName,
+            paymentLink: paymentLinkResponse.short_url,
+        });
+
+    } catch (err) {
+        console.error("Error booking follow-up appointment:", err);
+        return res.status(500).json({ message: "Booking follow-up failed.", error: err.message });
+    }
+});
+
 
 AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
     try {
@@ -736,11 +976,11 @@ AppointmentRoute.post("/markCompleted/:appointmentId", async (req, res) => {
         const sessionStart = new Date(appointment.session_start_time);
         const currentTime = new Date();
         const twentyMinutesLater = new Date(sessionStart.getTime() + 20 * 60000);
-        if (currentTime < twentyMinutesLater) {
-            return res.status(400).json({
-                message: "You can only mark the appointment as completed after 20 minutes of session start time."
-            });
-        }
+        // if (currentTime < twentyMinutesLater) {
+        //     return res.status(400).json({
+        //         message: "You can only mark the appointment as completed after 20 minutes of session start time."
+        //     });
+        // }
 
         appointment.appointment_status = "completed";
 
@@ -1149,6 +1389,25 @@ AppointmentRoute.post("/autoCancelUnstartedAppointments", async (req, res) => {
     } catch (error) {
         console.error("❌ Error in auto-cancel logic:", error);
         res.status(500).json({ message: "Server error", error: error.message });
+    }
+});
+
+AppointmentRoute.get("/appointments/latest/:mobile", async (req, res) => {
+    try {
+        const { mobile } = req.params;
+
+        // Find the latest appointment for the given mobile number
+        const latestAppointment = await AppointmentRecordsSchema.findOne({ mobile })
+            .sort({ createdAt: -1 });
+
+        if (!latestAppointment) {
+            return res.status(404).json({ message: "No appointment found for this mobile number" });
+        }
+
+        res.json(latestAppointment);
+    } catch (err) {
+        console.error("Error fetching latest appointment:", err);
+        res.status(500).json({ error: "Failed to fetch latest appointment" });
     }
 });
 

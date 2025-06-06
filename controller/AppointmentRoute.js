@@ -976,11 +976,11 @@ AppointmentRoute.post("/markCompleted/:appointmentId", async (req, res) => {
         const sessionStart = new Date(appointment.session_start_time);
         const currentTime = new Date();
         const twentyMinutesLater = new Date(sessionStart.getTime() + 20 * 60000);
-        // if (currentTime < twentyMinutesLater) {
-        //     return res.status(400).json({
-        //         message: "You can only mark the appointment as completed after 20 minutes of session start time."
-        //     });
-        // }
+        if (currentTime < twentyMinutesLater) {
+            return res.status(400).json({
+                message: "You can only mark the appointment as completed after 20 minutes of session start time."
+            });
+        }
 
         appointment.appointment_status = "completed";
 

@@ -205,7 +205,7 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
 
         // STEP 1: Get eligible doctor IDs based on userType
         const eligibleDoctorIds = await DoctorSchema.find({
-            role: userType === "corporate" ? "Therapist" : "Consultant"
+            Role: userType === "corporate" ? "Therapist" : "Consultant"
         }).distinct("_id");
 
         const availableDoctors = await DoctorScheduleSchema.find({
@@ -498,11 +498,11 @@ AppointmentRoute.post("/bookFollowUpAppointment", async (req, res) => {
         const doctor = await DoctorSchema.findById(doctor_id);
         if (!doctor) return res.status(404).json({ message: "Assigned doctor not found." });
 
-        // ✅ Validate correct role for follow-up
-        if (userType === "corporate" && doctor.role !== "Therapist") {
+        // ✅ Validate correct Role for follow-up
+        if (userType === "corporate" && doctor.Role !== "Therapist") {
             return res.status(400).json({ message: "Corporate patients must be assigned to a therapist (PhD)." });
         }
-        if (userType === "retail" && doctor.role !== "Consultant") {
+        if (userType === "retail" && doctor.Role !== "Consultant") {
             return res.status(400).json({ message: "Retail patients must be assigned to a consultant (MA)." });
         }
         const patientName = patient.Name;

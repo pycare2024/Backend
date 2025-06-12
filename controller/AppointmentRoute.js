@@ -203,15 +203,24 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
         else if (preferredTime === "evening") timeFilter = { "Slots.startTime": { $gte: "16:00", $lt: "21:00" } };
         else return res.status(400).json({ message: "Invalid preferredTime." });
 
+        // STEP 1: Get eligible doctor IDs based on userType
+        const eligibleDoctorIds = await DoctorSchema.find({
+            role: userType === "corporate" ? "Therapist" : "Consultant"
+        }).distinct("_id");
+
         const availableDoctors = await DoctorScheduleSchema.find({
             Date: appointmentDate,
             SlotsAvailable: { $gt: 0 },
             "Slots.isBooked": false,
+            doctor_id: { $in: eligibleDoctorIds },
             ...timeFilter,
         }).sort({ doctor_id: 1 });
 
-        if (!availableDoctors.length) return res.status(404).json({ message: "Unfortunately, no doctors are available at the selected time. Please try another time slot or date." });
+        if (!availableDoctors.length) {
+            return res.status(404).json({ message: "No doctors available at the selected time." });
+        }
 
+        // STEP 2: Find earliest slot and shortlist doctors
         let earliestSlotTime = null;
         availableDoctors.forEach(doc => {
             const slot = doc.Slots.find(s => !s.isBooked);
@@ -224,28 +233,32 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             doc.Slots.some(s => !s.isBooked && s.startTime === earliestSlotTime)
         );
 
-        const lastAssignment = await DoctorsAssignmentPrioritySchema.findOne({ Date: appointmentDate });
+        // STEP 3: Rotate using DoctorsAssignmentPrioritySchema
+        const trackerField = userType === "corporate" ? "LastPhDTherapistAssigned" : "LastMAConsultantAssigned";
         let selectedDoctor;
-        if (!lastAssignment) {
+        const assignmentRecord = await DoctorsAssignmentPrioritySchema.findOne({ Date: appointmentDate });
+
+        if (!assignmentRecord) {
             selectedDoctor = doctorsWithEarliest[0];
             await DoctorsAssignmentPrioritySchema.create({
                 Date: appointmentDate,
-                LastDoctorAssigned: selectedDoctor.doctor_id,
+                [trackerField]: selectedDoctor.doctor_id
             });
         } else {
             const idx = doctorsWithEarliest.findIndex(doc =>
-                doc.doctor_id.toString() === lastAssignment.LastDoctorAssigned.toString()
+                doc.doctor_id.toString() === (assignmentRecord[trackerField]?.toString())
             );
-            selectedDoctor =
-                idx === -1 || idx === doctorsWithEarliest.length - 1
-                    ? doctorsWithEarliest[0]
-                    : doctorsWithEarliest[idx + 1];
+            selectedDoctor = (idx === -1 || idx === doctorsWithEarliest.length - 1)
+                ? doctorsWithEarliest[0]
+                : doctorsWithEarliest[idx + 1];
+
             await DoctorsAssignmentPrioritySchema.updateOne(
                 { Date: appointmentDate },
-                { $set: { LastDoctorAssigned: selectedDoctor.doctor_id } }
+                { $set: { [trackerField]: selectedDoctor.doctor_id } }
             );
         }
 
+        // STEP 4: Finalize slot and create appointment
         const selectedSlot = selectedDoctor.Slots.find(s => !s.isBooked && s.startTime === earliestSlotTime);
         if (!selectedSlot) return res.status(500).json({ message: "No available slot found." });
 
@@ -269,72 +282,49 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
         };
 
         const doctor = await DoctorSchema.findById(selectedDoctor.doctor_id);
+        const DoctorName = doctor?.Name || "Doctor";
+        const DoctorPhNo = doctor?.Mobile || "0000000000";
         const patientName = patient.Name;
         const phone = patient.Mobile;
-        const DofAppt = appointmentData.DateOfAppointment.toDateString();
-        const apptTime = appointmentData.AppStartTime;
-        const DoctorName = doctor?.Name || "Doctor";
-        const DoctorPhNo = doctor?.Mobile || "12345";
+        const DofAppt = appointmentDate.toDateString();
+        const apptTime = selectedSlot.startTime;
         const clinicName = "PsyCare";
 
-        // console.log("Doctor mobile Number->",DoctorPhNo);
-
+        // CORPORATE FLOW
         if (userType === "corporate") {
-            console.log("Corporate booking detected");
-
             const company = await Corporate.findOne({ companyCode });
             if (!company) return res.status(404).json({ message: "Company not found." });
-
             if (company.totalCredits <= 0) {
-                return res.status(403).json({ message: "Insufficient credits in company account." });
+                return res.status(403).json({ message: "Insufficient company credits." });
             }
 
-            console.log("✅ Deducting credit for:", companyCode);
             company.totalCredits -= 1;
             await company.save();
 
-            const meetingLink = generateJitsiMeetingLink();
-            appointmentData.meeting_link = meetingLink;
-
+            appointmentData.meeting_link = generateJitsiMeetingLink();
             const savedAppointment = await new AppointmentRecordsSchema(appointmentData).save();
 
             await DoctorScheduleSchema.updateOne(
+                { _id: selectedDoctor._id, "Slots.startTime": selectedSlot.startTime },
                 {
-                    _id: selectedDoctor._id,
-                    "Slots.startTime": selectedSlot.startTime,
-                    "Slots.isBooked": false
-                },
-                {
-                    $set: {
-                        "Slots.$.isBooked": true,
-                        "Slots.$.bookedBy": patient_id
-                    },
+                    $set: { "Slots.$.isBooked": true, "Slots.$.bookedBy": patient_id },
                     $inc: { SlotsAvailable: -1 }
                 }
             );
 
-            const corporate = await Corporate.findOneAndUpdate(
-                {
-                    companyCode: companyCode,
-                    "associatedPatients.empId": empId,   // very important: match empId (employee only)
-                },
+            await Corporate.updateOne(
+                { companyCode, "associatedPatients.empId": empId },
                 {
                     $push: {
                         "associatedPatients.$.visits": {
                             date: appointmentDate,
-                            purpose: "Appointment"  // or save from frontend if dynamic
+                            purpose: "Appointment"
                         }
                     }
-                },
-                { new: true }
+                }
             );
 
-            if (!corporate) {
-                console.error("Employee not found inside corporate during visit update.");
-            } else {
-                console.log("✅ Visit successfully added to employee record");
-            }
-
+            // WhatsApp confirmation to patient
             if (phone) {
                 await fetch(`${WATI_API_URL}?whatsappNumber=91${phone}`, {
                     method: "POST",
@@ -352,17 +342,13 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
                             { name: "doctor_name", value: DoctorName },
                             { name: "clinic_name", value: clinicName },
                             { name: "payment_id", value: "Corporate Package" },
-                            {
-                                name: "link",
-                                value: "Your appointment has been confirmed and covered under your company’s package. No payment is required. ✅"
-                            }
+                            { name: "link", value: "Your appointment is confirmed and covered under your company’s plan. ✅" }
                         ]
                     })
                 });
             }
 
-            const timeSlot = `${selectedSlot.startTime} - ${selectedSlot.endTime}`;
-
+            // WhatsApp notification to doctor
             if (DoctorPhNo) {
                 await fetch(`${WATI_API_URL}?whatsappNumber=91${DoctorPhNo}`, {
                     method: "POST",
@@ -377,21 +363,21 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
                             { name: "Doctor_Name", value: DoctorName },
                             { name: "Patient_Name", value: patientName },
                             { name: "Date", value: DofAppt },
-                            { name: "Time_Slot", value: timeSlot }
+                            { name: "Time_Slot", value: `${selectedSlot.startTime} - ${selectedSlot.endTime}` }
                         ]
                     })
                 });
             }
 
             return res.status(200).json({
-                message: `Appointment booked successfully (corporate). Remaining credits: ${company.totalCredits}`,
+                message: "Appointment booked (corporate)",
                 appointmentDetails: appointmentData,
-                doctorName: doctor?.Name,
+                doctorName: DoctorName,
                 remainingCredits: company.totalCredits
             });
         }
 
-        // RETAIL flow
+        // RETAIL FLOW
         const savedAppointment = await new AppointmentRecordsSchema(appointmentData).save();
 
         const paymentLinkResponse = await razorpay.paymentLink.create({
@@ -444,7 +430,7 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
 AppointmentRoute.post("/bookFollowUpAppointment", async (req, res) => {
     try {
 
-        console.log("Req body->",req.body);
+        console.log("Req body->", req.body);
         const { selectedDate, patient_id, preferredTime, userType, empId, companyCode, doctor_id, previousAppointmentId } = req.body;
 
         if (!selectedDate || !patient_id || !preferredTime || !doctor_id) {
@@ -458,6 +444,7 @@ AppointmentRoute.post("/bookFollowUpAppointment", async (req, res) => {
             patient_id,
             DateOfAppointment: appointmentDate,
         });
+
         if (existingAppointment) {
             return res.status(409).json({
                 message: "You already have an appointment booked for this date.",
@@ -509,6 +496,15 @@ AppointmentRoute.post("/bookFollowUpAppointment", async (req, res) => {
         };
 
         const doctor = await DoctorSchema.findById(doctor_id);
+        if (!doctor) return res.status(404).json({ message: "Assigned doctor not found." });
+
+        // ✅ Validate correct role for follow-up
+        if (userType === "corporate" && doctor.role !== "Therapist") {
+            return res.status(400).json({ message: "Corporate patients must be assigned to a therapist (PhD)." });
+        }
+        if (userType === "retail" && doctor.role !== "Consultant") {
+            return res.status(400).json({ message: "Retail patients must be assigned to a consultant (MA)." });
+        }
         const patientName = patient.Name;
         const phone = patient.Mobile;
         const DofAppt = appointmentData.DateOfAppointment.toDateString();
@@ -806,6 +802,26 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
                     })
                 });
 
+                if (doctor.Mobile) {
+                    await fetch(`${WATI_API_URL}?whatsappNumber=91${doctor.Mobile}`, {
+                        method: "POST",
+                        headers: {
+                            Authorization: WATI_API_KEY,
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                            template_name: "new_appointment_notification_to_doctor",
+                            broadcast_name: "appointment_notification_to_doctor",
+                            parameters: [
+                                { name: "Doctor_Name", value: doctor.Name },
+                                { name: "Patient_Name", value: patientName },
+                                { name: "Date", value: DofAppt },
+                                { name: "Time_Slot", value: `${appointment.AppStartTime} - ${appointment.AppEndTime}` }
+                            ]
+                        })
+                    });
+                }
+
                 const whatsappData = await whatsappResponse.json();
                 if (!whatsappResponse.ok) {
                     console.error("Failed to send WhatsApp message:", whatsappData);
@@ -829,6 +845,9 @@ AppointmentRoute.post("/startSession/:appointmentId", async (req, res) => {
         const appointment = await AppointmentRecordsSchema.findById(appointmentId);
         if (!appointment) {
             return res.status(404).json({ message: "Appointment not found" });
+        }
+        if (appointment.session_started) {
+            return res.status(400).json({ message: "Session has already been started." });
         }
 
         const appointmentDate = appointment.DateOfAppointment; // This is a Date object
@@ -1194,6 +1213,9 @@ AppointmentRoute.post("/cancelAndRefund/:appointmentId", async (req, res) => {
         if (appointment.appointment_status === "cancelled") {
             return res.status(400).json({ message: "Appointment is already cancelled." });
         }
+        if (appointment.isPaidToDoctor) {
+            return res.status(400).json({ message: "Doctor has already been paid for this appointment. Cannot cancel and refund." });
+        }
 
         // 2. Fetch patient to get userType
         const patient = await patientSchema.findById(appointment.patient_id);
@@ -1309,7 +1331,6 @@ AppointmentRoute.post("/autoCancelUnstartedAppointments", async (req, res) => {
         const nowUTC = new Date();
         const nowIST = new Date(nowUTC.getTime() + 5.5 * 60 * 60 * 1000);
 
-
         const appointments = await AppointmentRecordsSchema.find({
             appointment_status: "scheduled",
             payment_status: "confirmed",
@@ -1319,69 +1340,120 @@ AppointmentRoute.post("/autoCancelUnstartedAppointments", async (req, res) => {
         const cancelled = [];
 
         for (const appt of appointments) {
-            const appointmentDate = new Date(appt.DateOfAppointment);
-            const [hours, minutes] = appt.AppStartTime.split(":").map(Number);
-            appointmentDate.setHours(hours, minutes, 0, 0);
+            try {
+                const appointmentDate = new Date(appt.DateOfAppointment);
+                const [hours, minutes] = appt.AppStartTime.split(":").map(Number);
+                appointmentDate.setHours(hours, minutes, 0, 0);
 
-            const deadline = new Date(appointmentDate.getTime() + 20 * 60000);
+                const deadline = new Date(appointmentDate.getTime() + 20 * 60000);
+                if (nowIST <= deadline) continue;
 
-            if (nowIST > deadline) {
-                try {
-                    const refund = await InitiateRefund(appt.payment_id);
+                // Skip if already refunded or paid
+                if (appt.isPaidToDoctor || appt.payment_status === "refunded") continue;
+
+                const patient = await patientSchema.findById(appt.patient_id);
+                if (!patient) continue;
+
+                const isCorporate = patient.userType === "corporate";
+
+                if (isCorporate) {
+                    const corporate = await CorporateSchema.findOne({ companyCode: patient.companyCode });
+                    if (!corporate) continue;
+
+                    corporate.totalCredits += 1;
+                    corporate.refundHistory.push({
+                        credits: 1,
+                        appointmentId: appt._id,
+                        reason: "Auto-cancelled: Doctor did not start session"
+                    });
+                    await corporate.save();
 
                     appt.appointment_status = "cancelled";
                     appt.payment_status = "refunded";
-                    appt.refund_id = refund.id;
                     appt.cancellation_reason = "Auto-cancelled: Doctor did not start session";
                     await appt.save();
 
-                    // ✅ Send WhatsApp refund message
-                    const patientPhone = appt.patientPhoneNumber;
-                    const patientName = appt.patientName;
+                    // WhatsApp - corporate refund
                     const doctor = await DoctorSchema.findById(appt.doctor_id);
-
-                    if (patientPhone && doctor) {
+                    const phone = appt.patientPhoneNumber;
+                    if (phone && doctor) {
                         const formattedDate = new Date(appt.DateOfAppointment).toLocaleDateString("en-IN", {
-                            day: "2-digit",
-                            month: "short",
-                            year: "numeric"
+                            day: "2-digit", month: "short", year: "numeric"
                         });
 
-                        const payload = {
+                        await fetch(`${WATI_API_URL}?whatsappNumber=91${phone}`, {
+                            method: "POST",
+                            headers: {
+                                Authorization: WATI_API_KEY,
+                                "Content-Type": "application/json"
+                            },
+                            body: JSON.stringify({
+                                template_name: "corporate_appointment_refund",
+                                broadcast_name: "AutoCancel_CorpRefund",
+                                parameters: [
+                                    { name: "patient_name", value: appt.patientName },
+                                    { name: "emp_id", value: patient.empId || "NA" },
+                                    { name: "doctor_name", value: doctor.Name },
+                                    { name: "date", value: formattedDate },
+                                    { name: "time", value: appt.AppStartTime }
+                                ]
+                            })
+                        });
+                    }
+
+                    cancelled.push(appt._id);
+                    continue; // ✅ Skip Razorpay logic
+                }
+
+                // Retail flow: Refund through Razorpay
+                if (!appt.payment_id) continue;
+
+                const refund = await InitiateRefund(appt.payment_id);
+
+                appt.appointment_status = "cancelled";
+                appt.payment_status = "refunded";
+                appt.refund_id = refund.id;
+                appt.cancellation_reason = "Auto-cancelled: Doctor did not start session";
+                await appt.save();
+
+                const doctor = await DoctorSchema.findById(appt.doctor_id);
+                const phone = appt.patientPhoneNumber;
+                if (phone && doctor) {
+                    const formattedDate = new Date(appt.DateOfAppointment).toLocaleDateString("en-IN", {
+                        day: "2-digit", month: "short", year: "numeric"
+                    });
+
+                    await fetch(`${WATI_API_URL}?whatsappNumber=91${phone}`, {
+                        method: "POST",
+                        headers: {
+                            Authorization: WATI_API_KEY,
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
                             template_name: "payment_refund",
                             broadcast_name: "Auto_Cancelled_Refund",
                             parameters: [
-                                { name: "patient_name", value: patientName },
+                                { name: "patient_name", value: appt.patientName },
                                 { name: "doctor_name", value: doctor.Name },
                                 { name: "date", value: formattedDate },
                                 { name: "time", value: appt.AppStartTime }
                             ]
-                        };
-
-                        const whatsappResponse = await fetch(`${WATI_API_URL}?whatsappNumber=91${patientPhone}`, {
-                            method: "POST",
-                            headers: {
-                                "Authorization": WATI_API_KEY,
-                                "Content-Type": "application/json"
-                            },
-                            body: JSON.stringify(payload)
-                        });
-
-                        const data = await whatsappResponse.json();
-                        if (!whatsappResponse.ok) {
-                            console.error("❌ Failed to send WhatsApp message:", data);
-                        }
-                    }
-
-                    cancelled.push(appt._id);
-                } catch (err) {
-                    console.error(`❌ Refund failed for appointment ${appt._id}`, err.message);
+                        })
+                    });
                 }
+
+                cancelled.push(appt._id);
+
+            } catch (err) {
+                console.error(`❌ Failed to auto-cancel appointment ${appt._id}:`, err.message);
+                // Optionally mark for manual handling
+                appt.cancellation_reason = "Auto-cancel failed: " + err.message;
+                await appt.save();
             }
         }
 
         res.status(200).json({
-            message: `✅ Auto-cancel check completed.`,
+            message: "✅ Auto-cancel check completed.",
             totalChecked: appointments.length,
             cancelledAppointments: cancelled
         });

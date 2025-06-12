@@ -39,44 +39,39 @@ DoctorRoute.post("/doctorlogin", async (req, res) => {
     const { loginId, password } = req.body;
 
     try {
-        const doctor = await DoctorSchema.findOne({ loginId:loginId, password:password });
+        const doctor = await DoctorSchema.findOne({ loginId: loginId, password: password });
 
         // console.log(doctor.password);
-        if (doctor)
-            {
-                return res.json({
-                    message: "Login successful",
-                    success: true,
-                    doctor: { name: doctor.Name, id: doctor.id , doctor_id: doctor._id }
-                });
-            } else {
-                return res.status(401).json({ message: "Invalid loginId or password", success: false });
-            }
-    } 
-    catch(error)
-    {
-        return res.status(500).json({message:"Server error",success:false});
+        if (doctor) {
+            return res.json({
+                message: "Login successful",
+                success: true,
+                doctor: { name: doctor.Name, id: doctor.id, doctor_id: doctor._id }
+            });
+        } else {
+            return res.status(401).json({ message: "Invalid loginId or password", success: false });
+        }
+    }
+    catch (error) {
+        return res.status(500).json({ message: "Server error", success: false });
     }
 });
 
-DoctorRoute.post("/verifyCredentials",async(req,res)=>{
-    const {loginId , Mobile, dob} = req.body;
+DoctorRoute.post("/verifyCredentials", async (req, res) => {
+    const { loginId, Mobile, dob } = req.body;
 
-    try{
-        const doctor=await DoctorSchema.findOne({loginId,Mobile,dob});
+    try {
+        const doctor = await DoctorSchema.findOne({ loginId, Mobile, dob });
 
-        if(doctor)
-            {
-                return res.json({success : true, message: "Credentials verified successfully"});
+        if (doctor) {
+            return res.json({ success: true, message: "Credentials verified successfully" });
 
-            }
-            else
-            {
-                return res.status(401).json({ success: false, message: "Invalid credentials, please check and try again." });
-            }
+        }
+        else {
+            return res.status(401).json({ success: false, message: "Invalid credentials, please check and try again." });
+        }
     }
-    catch(error)
-    {
+    catch (error) {
         return res.status(500).json({ success: false, message: "Server error, please try again." });
     }
 });
@@ -131,13 +126,13 @@ DoctorRoute.post("/resetPassword", async (req, res) => {
     }
 });
 
-DoctorRoute.post("/register", async (req, res) => 
-    {
+DoctorRoute.post("/register", async (req, res) => {
 
-    const { id, Name, City, Qualification, loginId, password, Gender, Mobile} = req.body;
+    console.log("Req Body -> ", req.body);
+    const { id, Name, City, Qualification, loginId, password, Gender, Mobile, Role } = req.body;
 
     // Check if all required fields are provided
-    if (!id || !Name ||  !City || !Qualification || !loginId || !password || !Gender || !Mobile) {
+    if (!id || !Name || !City || !Qualification || !loginId || !password || !Gender || !Mobile || !Role) {
         return res.status(400).json({ success: false, message: "All fields are required" });
     }
 
@@ -158,6 +153,7 @@ DoctorRoute.post("/register", async (req, res) =>
             password, // Save hashed password
             Gender,
             Mobile,
+            Role,
         });
 
         await newDoctor.save();

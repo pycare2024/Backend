@@ -76,7 +76,7 @@ NewScreeningTestRoute.post("/submitAssessment", async (req, res) => {
       anxiety: [{ name: "GAD-7", count: 7 }, { name: "BAI", count: 21 }],
       sleep: [{ name: "ISI", count: 7 }],
       ptsd: [{ name: "PCL-5", count: 20 }],
-      ocd: [{ name: "Y-BOCS-II", count: 20 }]
+      Ocd: [{ name: "Y-BOCS", count: 10 }]
     };
 
     let currentIndex = 0;

@@ -47,6 +47,8 @@ GeminiRoute.post("/ask", async (req, res) => {
 GeminiRoute.post("/generateReport", async (req, res) => {
     const { scores, patientName } = req.body;
 
+    console.log("I am gemini putting scores -> ",scores);
+
     if (!scores || typeof scores !== "object" || Object.keys(scores).length === 0) {
         return res.status(400).json({ message: "At least one score is required to generate a report." });
     }
@@ -94,10 +96,10 @@ GeminiRoute.post("/generateReport", async (req, res) => {
     }
 
     // OCD
-    if (scores["Y-BOCS-II"] !== undefined) {
-        toolsUsed.push("Y-BOCS-II");
-        scoreSummary += `- Y-BOCS-II (OCD): ${scores["Y-BOCS-II"]}\n`;
-        scoringGuide += "- Y-BOCS-II: 0–7 (Subclinical), 8–15 (Mild), 16–23 (Moderate), 24–31 (Severe), 32–40+ (Extreme)\n";
+    if (scores["Y-BOCS"] !== undefined) {
+        toolsUsed.push("Y-BOCS");
+        scoreSummary += `- Y-BOCS (OCD): ${scores["Y-BOCS"]}\n`;
+        scoringGuide += "- Y-BOCS: 0–7 (Subclinical), 8–15 (Mild), 16–23 (Moderate), 24–31 (Severe), 32–40 (Extreme)\n";
     }
 
     const prompt = `

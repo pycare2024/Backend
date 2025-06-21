@@ -8,7 +8,7 @@ const ScreeningTestQuestionSchema = new mongoose.Schema(
     },
     instrument: {
       type: String,
-      required: true // e.g., "PHQ-9", "BDI-2", "GAD-7", "BAI"
+      required: true // e.g., "PHQ-9", "BDI-2", "GAD-7", "BAI",Y-BOCS
     },
     order: {
       type: Number,

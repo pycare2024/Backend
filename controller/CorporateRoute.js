@@ -9,6 +9,7 @@ const ScreeningTestSchema = require("../model/NewScreeningTestSchema");
 const AppointmentRecords = require("../model/AppointmentRecordsSchema");
 const AppointmentRecordsSchema = require("../model/AppointmentRecordsSchema");
 const NewScreeningTestSchema = require("../model/NewScreeningTestSchema");
+const CorporateEmployeeMasterSchema = require("../model/CorporateEmployeeMasterSchema");
 
 const WATI_API_URL = "https://live-mt-server.wati.io/387357/api/v2/sendTemplateMessage";
 const WATI_API_KEY = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhZmY3OWIzZC0wY2FjLTRlMjEtOThmZC1hNTExNGQyYzBlOTEiLCJ1bmlxdWVfbmFtZSI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsIm5hbWVpZCI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsImVtYWlsIjoiY29udGFjdHVzQHBzeS1jYXJlLmluIiwiYXV0aF90aW1lIjoiMDEvMDEvMjAyNSAwNTo0NzoxOCIsInRlbmFudF9pZCI6IjM4NzM1NyIsImRiX25hbWUiOiJtdC1wcm9kLVRlbmFudHMiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBRE1JTklTVFJBVE9SIiwiZXhwIjoyNTM0MDIzMDA4MDAsImlzcyI6IkNsYXJlX0FJIiwiYXVkIjoiQ2xhcmVfQUkifQ.e4BgIPZN_WI1RU4VkLoyBAndhzW8uKntWnhr4K-J9K0"; // Replace with actual token
@@ -135,27 +136,37 @@ CorporateRoute.post("/verifyCorporatePatient", async (req, res) => {
       return res.status(400).json({ message: "Company code and Employee ID are required." });
     }
 
-    const company = await Corporate.findOne({ companyCode });
+    // 1. Check in the master list first
+    const masterRecord = await CorporateEmployeeMasterSchema.findOne({ companyCode, empId });
+    if (!masterRecord) {
+      return res.status(404).json({ message: "❌ You are not authorized to register under this company." });
+    }
 
+    // 2. Check if company exists in Corporate collection
+    const company = await Corporate.findOne({ companyCode });
     if (!company) {
-      return res.status(404).json({ message: "Company not registered with us." });
+      return res.status(404).json({ message: "Company not registered in system." });
     }
 
     const employee = company.associatedPatients.find(p => p.empId === empId);
-
     if (employee) {
       return res.status(200).json({
         exists: true,
-        message: "Employee exists in our records.",
+        message: "Employee already registered.",
         companyName: company?.companyName,
-        employee // ✅ Include the full employee object
-      });
-    } else {
-      return res.status(700).json({
-        exists: false,
-        message: "Employee not found. Proceed to registration."
+        employee
       });
     }
+
+    return res.status(200).json({
+      exists: false,
+      message: "✅ Verified employee. Proceed to registration.",
+      companyName: company?.companyName,
+      masterRecord: {
+        name: masterRecord.name,
+        empId: masterRecord.empId
+      }
+    });
 
   } catch (error) {
     console.error("❌ Error verifying corporate patient:", error.message);
@@ -164,14 +175,24 @@ CorporateRoute.post("/verifyCorporatePatient", async (req, res) => {
 });
 
 CorporateRoute.post("/registerCorporateEmployee", async (req, res) => {
-  const { Name, Age, Gender, Location, Mobile, Problem, empId, companyCode, Department } = req.body;
+  const { Age, Gender, Location, Mobile, Problem, empId, companyCode, Department } = req.body;
 
-  if (!Name || !Age || !Gender || !Location || !Mobile || !Problem || !empId || !companyCode || !Department) {
-    return res.status(400).json({ error: "All fields are required." });
+  // ✅ Validate essential fields (excluding name, which will be fetched from master)
+  if (!Age || !Gender || !Location || !Mobile || !Problem || !empId || !companyCode || !Department) {
+    return res.status(400).json({ error: "Missing required fields." });
   }
 
   try {
-    // 1. Save the patient into the Patients collection
+    // ✅ 1. Get name from master record
+    const masterRecord = await CorporateEmployeeMasterSchema.findOne({ companyCode, empId });
+
+    if (!masterRecord) {
+      return res.status(403).json({ error: "❌ You are not in the authorized employee list for this company." });
+    }
+
+    const Name = masterRecord.name;
+
+    // ✅ 2. Create new patient document
     const newPatient = new patientSchema({
       Name,
       Age,
@@ -179,15 +200,15 @@ CorporateRoute.post("/registerCorporateEmployee", async (req, res) => {
       Location,
       Mobile,
       Problem,
-      userType: "corporate",    // 👈 Corporate user type
-      empId: empId,              // 👈 Employee ID
-      companyCode: companyCode   // 👈 Company code
+      userType: "corporate",
+      empId,
+      companyCode
     });
 
     await newPatient.save();
 
-    // 2. Update the Corporate document to add this employee
-    const updated = await Corporate.updateOne(
+    // ✅ 3. Push to Corporate collection
+    const updateResult = await Corporate.updateOne(
       { companyCode },
       {
         $push: {
@@ -202,9 +223,15 @@ CorporateRoute.post("/registerCorporateEmployee", async (req, res) => {
       }
     );
 
-    if (updated.modifiedCount === 0) {
+    if (updateResult.modifiedCount === 0) {
       return res.status(404).json({ error: "Company not found." });
     }
+
+    // ✅ 4. Mark as registered in master list
+    await CorporateEmployeeMasterSchema.updateOne(
+      { companyCode, empId },
+      { $set: { registered: true } }
+    );
 
     return res.status(201).json({
       message: "Corporate employee registered successfully",
@@ -1187,5 +1214,28 @@ CorporateRoute.post("/categorize-overall-severity", async (req, res) => {
 //     res.status(500).json({ message: "Internal server error", error: error.message });
 //   }
 // });
+
+CorporateRoute.post("/bulk-insert", async (req, res) => {
+  try {
+    const { companyCode, employees } = req.body;
+
+    if (!companyCode || !Array.isArray(employees)) {
+      return res.status(400).json({ message: "Invalid input." });
+    }
+
+    const formatted = employees.map(emp => ({
+      companyCode,
+      empId: emp.empId,
+      name: emp.name,
+      registered: false
+    }));
+
+    const result = await CorporateEmployeeMasterSchema.insertMany(formatted, { ordered: false });
+    res.status(200).json({ message: "Employees inserted", insertedCount: result.length });
+  } catch (error) {
+    console.error("Bulk insert error:", error.code === 11000 ? "Duplicate empId" : error);
+    res.status(500).json({ message: "Failed to insert some or all employees", error: error.message });
+  }
+});
 
 module.exports = CorporateRoute;

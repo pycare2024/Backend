@@ -117,6 +117,27 @@ CorporateRoute.post("/register", async (req, res) => {
 
     await newCompany.save();
 
+    try {
+      await fetch(`${WATI_API_URL}?whatsappNumber=91${phone}`, {
+        method: "POST",
+        headers: {
+          "Authorization": WATI_API_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          template_name: "corporate_registration",
+          broadcast_name: "Corporate Welcome",
+          parameters: [
+            { name: "Company_Name", value: companyName },
+            { name: "Company_code", value: companyCode }
+          ]
+        })
+      });
+      console.log("✅ WhatsApp message sent successfully.");
+    } catch (waError) {
+      console.error("⚠️ Failed to send WhatsApp message:", waError.message);
+    }
+
     res.status(201).json({
       message: "Company registered successfully",
       companyCode

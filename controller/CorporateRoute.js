@@ -179,7 +179,7 @@ CorporateRoute.post("/verifyCorporatePatient", async (req, res) => {
       });
     }
 
-    return res.status(200).json({
+    return res.status(400).json({
       exists: false,
       message: "✅ Verified employee. Proceed to registration.",
       companyName: company?.companyName,

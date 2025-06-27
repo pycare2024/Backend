@@ -16,6 +16,7 @@ const DoctorTransactionsSchema = require("../model/DoctorTransactionsSchema");
 const InitiateRefund = require("../Utility/InitiateRefund");
 const Corporate = require("../model/CorporateSchema");
 const CorporateSchema = require("../model/CorporateSchema");
+const NewScreeningTestSchema = require("../model/NewScreeningTestSchema");
 
 
 const WATI_API_URL = "https://live-mt-server.wati.io/387357/api/v2/sendTemplateMessage";
@@ -181,6 +182,15 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
 
         if (!selectedDate || !patient_id || !preferredTime) {
             return res.status(400).json({ message: "All fields are required." });
+        }
+
+        // Check if screening test exists
+        const existingAssessment = await NewScreeningTestSchema.findOne({ patient_id });
+
+        if (!existingAssessment) {
+            return res.status(403).json({
+                message: "🧠 Please complete the screening test before booking an appointment.You cannot book an appointment without taking screening test."
+            });
         }
 
         const appointmentDate = new Date(selectedDate);

@@ -189,7 +189,7 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
 
         if (!existingAssessment) {
             return res.status(403).json({
-                message: "🧠 Please complete the screening test before booking an appointment.You cannot book an appointment without taking screening test."
+                message: "🧠 Please complete the psychometric test before booking an appointment.You cannot book an appointment without taking screening test. Go to Home page and Take Psychometric Assessment First to Book an Appointment !"
             });
         }
 

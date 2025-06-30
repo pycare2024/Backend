@@ -1030,7 +1030,7 @@ AppointmentRoute.post("/markCompleted/:appointmentId", async (req, res) => {
         }
 
         const doctorId = appointment.doctor_id;
-        const amount = 500;
+        const amount = 750;
 
         await DoctorTransactionsSchema.create({
             doctorId,

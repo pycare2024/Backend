@@ -1603,5 +1603,55 @@ AppointmentRoute.post("/bookRetailAppointmentMarketplace", async (req, res) => {
     }
 });
 
+AppointmentRoute.get("/marketplace/getAvailableSlots/:doctorId", async (req, res) => {
+  const { doctorId } = req.params;
+
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // start of today
+
+    const fifteenDaysLater = new Date();
+    fifteenDaysLater.setDate(today.getDate() + 15);
+    fifteenDaysLater.setHours(23, 59, 59, 999); // end of the 15th day
+
+    const schedules = await DoctorScheduleSchema.find({
+      doctor_id: doctorId,
+      Date: { $gte: today, $lte: fifteenDaysLater },
+      SlotsAvailable: { $gt: 0 },
+    }).sort({ Date: 1 });
+
+    const result = schedules.map(schedule => ({
+      schedule_id: schedule._id,
+      date: schedule.Date,
+      weekday: schedule.WeekDay,
+      slots: schedule.Slots.filter(slot => !slot.isBooked),
+    }));
+
+    return res.status(200).json({ availableSchedules: result });
+  } catch (err) {
+    console.error("❌ Error fetching slots:", err);
+    return res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+AppointmentRoute.get("/checkPaymentStatus/:appointmentId", async (req, res) => {
+  try {
+    const { appointmentId } = req.params;
+
+    const appointment = await AppointmentRecordsSchema.findById(appointmentId);
+    if (!appointment) {
+      return res.status(404).json({ message: "Appointment not found" });
+    }
+
+    return res.status(200).json({
+      payment_status: appointment.payment_status,
+      appointment_details: appointment
+    });
+  } catch (error) {
+    console.error("Error checking payment status:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 module.exports = AppointmentRoute;
 

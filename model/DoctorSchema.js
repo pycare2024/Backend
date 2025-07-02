@@ -4,6 +4,7 @@ const { collection } = require("./AdminSchema");
 
 const DoctorSchema = mongoose.Schema({
     id: { type: String },
+    photo: { type: String, default: "" },
     Name: { type: String },
     City: { type: String },
     Qualification: { type: String },

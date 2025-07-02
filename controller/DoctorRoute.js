@@ -4,6 +4,11 @@ const DoctorRoute = express.Router();
 const DoctorAccountsSchema = require("../model/DoctorAccountsSchema");
 const DoctorTransactionsSchema = require("../model/DoctorTransactionsSchema");
 
+const multer = require("multer");
+const cloudinary = require("../Utility/cloudinary");
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
+
 const WATI_API_URL = "https://live-mt-server.wati.io/387357/api/v2/sendTemplateMessage";
 const WATI_API_KEY = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhZmY3OWIzZC0wY2FjLTRlMjEtOThmZC1hNTExNGQyYzBlOTEiLCJ1bmlxdWVfbmFtZSI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsIm5hbWVpZCI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsImVtYWlsIjoiY29udGFjdHVzQHBzeS1jYXJlLmluIiwiYXV0aF90aW1lIjoiMDEvMDEvMjAyNSAwNTo0NzoxOCIsInRlbmFudF9pZCI6IjM4NzM1NyIsImRiX25hbWUiOiJtdC1wcm9kLVRlbmFudHMiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBRE1JTklTVFJBVE9SIiwiZXhwIjoyNTM0MDIzMDA4MDAsImlzcyI6IkNsYXJlX0FJIiwiYXVkIjoiQ2xhcmVfQUkifQ.e4BgIPZN_WI1RU4VkLoyBAndhzW8uKntWnhr4K-J9K0"; // Replace with actual token
 
@@ -18,12 +23,12 @@ DoctorRoute.get("/", (req, res) => {
 });
 
 DoctorRoute.get("/marketplacedoctors", (req, res) => {
-  DoctorSchema.find({ platformType: "marketplace" }, (err, data) => {
-    if (err) {
-      return res.status(500).json({ message: "Failed to fetch marketplace doctors" });
-    }
-    res.json(data);
-  });
+    DoctorSchema.find({ platformType: "marketplace" }, (err, data) => {
+        if (err) {
+            return res.status(500).json({ message: "Failed to fetch marketplace doctors" });
+        }
+        res.json(data);
+    });
 });
 
 // Fetch a specific doctor by ID
@@ -138,7 +143,7 @@ DoctorRoute.post("/resetPassword", async (req, res) => {
 DoctorRoute.post("/register", async (req, res) => {
 
     console.log("Req Body -> ", req.body);
-    const { id, Name, City, Qualification, loginId, password, Gender, Mobile, Role, platformType } = req.body;
+    const { id, Name, City, Qualification, loginId, password, Gender, Mobile, Role, platformType, photo } = req.body;
 
     // Check if all required fields are provided
     if (!id || !Name || !City || !Qualification || !loginId || !password || !Gender || !Mobile || !Role || !platformType) {
@@ -159,15 +164,16 @@ DoctorRoute.post("/register", async (req, res) => {
             City,
             Qualification,
             loginId,
-            password, // Save hashed password
+            password,
             Gender,
             Mobile,
             Role,
             platformType,
+            photo  // 👈 include photo here
         });
 
         await newDoctor.save();
-        res.status(201).json({ success: true, message: "Doctor registered successfully" });
+        res.status(201).json({ success: true, message: "Doctor registered", doctor: newDoctor });
 
     } catch (error) {
         res.status(500).json({ success: false, message: "Server error, please try again" });
@@ -266,6 +272,31 @@ DoctorRoute.get("/getDoctorTransactions/:doctorId", async (req, res) => {
     } catch (error) {
         console.error("Transaction Fetch Error:", error);
         return res.status(500).json({ success: false, message: "Server error", error: error.message });
+    }
+});
+
+const streamifier = require("streamifier");
+
+DoctorRoute.post("/uploadPhoto/:doctorId", upload.single("photo"), async (req, res) => {
+    try {
+        const file = req.file;
+        const doctorId = req.params.doctorId;
+
+        if (!file) return res.status(400).json({ message: "No file uploaded" });
+
+        const stream = cloudinary.uploader.upload_stream(
+            { folder: "doctor_profiles" },
+            async (error, result) => {
+                if (error) return res.status(500).json({ message: "Upload failed", error });
+
+                await DoctorSchema.findByIdAndUpdate(doctorId, { photo: result.secure_url });
+                res.status(200).json({ message: "Photo uploaded", url: result.secure_url });
+            }
+        );
+
+        streamifier.createReadStream(file.buffer).pipe(stream);
+    } catch (err) {
+        res.status(500).json({ message: "Server error", error: err.message });
     }
 });
 

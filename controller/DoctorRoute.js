@@ -17,6 +17,15 @@ DoctorRoute.get("/", (req, res) => {
     });
 });
 
+DoctorRoute.get("/marketplacedoctors", (req, res) => {
+  DoctorSchema.find({ platformType: "marketplace" }, (err, data) => {
+    if (err) {
+      return res.status(500).json({ message: "Failed to fetch marketplace doctors" });
+    }
+    res.json(data);
+  });
+});
+
 // Fetch a specific doctor by ID
 DoctorRoute.get("/:id", async (req, res) => {
     const { id } = req.params;
@@ -129,10 +138,10 @@ DoctorRoute.post("/resetPassword", async (req, res) => {
 DoctorRoute.post("/register", async (req, res) => {
 
     console.log("Req Body -> ", req.body);
-    const { id, Name, City, Qualification, loginId, password, Gender, Mobile, Role } = req.body;
+    const { id, Name, City, Qualification, loginId, password, Gender, Mobile, Role, platformType } = req.body;
 
     // Check if all required fields are provided
-    if (!id || !Name || !City || !Qualification || !loginId || !password || !Gender || !Mobile || !Role) {
+    if (!id || !Name || !City || !Qualification || !loginId || !password || !Gender || !Mobile || !Role || !platformType) {
         return res.status(400).json({ success: false, message: "All fields are required" });
     }
 
@@ -154,6 +163,7 @@ DoctorRoute.post("/register", async (req, res) => {
             Gender,
             Mobile,
             Role,
+            platformType,
         });
 
         await newDoctor.save();

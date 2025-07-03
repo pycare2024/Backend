@@ -141,24 +141,38 @@ DoctorRoute.post("/resetPassword", async (req, res) => {
 });
 
 DoctorRoute.post("/register", async (req, res) => {
-
     console.log("Req Body -> ", req.body);
-    const { id, Name, City, Qualification, loginId, password, Gender, Mobile, Role, platformType, photo } = req.body;
 
-    // Check if all required fields are provided
+    const {
+        id,
+        Name,
+        City,
+        Qualification,
+        loginId,
+        password,
+        Gender,
+        Mobile,
+        Role,
+        platformType,
+        photo,
+        consultsStudents,
+        languagesSpoken,
+        experienceYears,
+        areaOfExpertise,
+        certifications
+    } = req.body;
+
     if (!id || !Name || !City || !Qualification || !loginId || !password || !Gender || !Mobile || !Role || !platformType) {
-        return res.status(400).json({ success: false, message: "All fields are required" });
+        return res.status(400).json({ success: false, message: "All required fields must be provided" });
     }
 
     try {
-        // Check if doctor already exists
         const existingDoctor = await DoctorSchema.findOne({ loginId });
         if (existingDoctor) {
             return res.status(400).json({ success: false, message: "Doctor with this login ID already exists" });
         }
 
-        // Create new doctor entry
-        const newDoctor = new DoctorSchema({
+        const doctorData = {
             id,
             Name,
             City,
@@ -169,14 +183,50 @@ DoctorRoute.post("/register", async (req, res) => {
             Mobile,
             Role,
             platformType,
-            photo  // 👈 include photo here
-        });
+            photo,
+            languagesSpoken: languagesSpoken || [],
+            experienceYears: experienceYears || 0,
+            areaOfExpertise: areaOfExpertise || [],
+            certifications: certifications || []
+        };
 
+        if (platformType === "marketplace") {
+            doctorData.consultsStudents = consultsStudents === true || consultsStudents === "true";
+        }
+
+        const newDoctor = new DoctorSchema(doctorData);
         await newDoctor.save();
-        res.status(201).json({ success: true, message: "Doctor registered", doctor: newDoctor });
 
+        if (Mobile) {
+            const response = await fetch(`${WATI_API_URL}?whatsappNumber=91${Mobile}`, {
+                method: "POST",
+                headers: {
+                    Authorization: WATI_API_KEY,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    template_name: "details",
+                    broadcast_name: "Doctor Onboarding",
+                    parameters: [
+                        { name: "name", value: Name },
+                        { name: "loginId", value: loginId },
+                        { name: "password", value: password }
+                    ]
+                })
+            });
+
+            const data = await response.json();
+            console.log("WATI response for credential message:", data);
+        }
+
+        return res.status(201).json({
+            success: true,
+            message: "Doctor registered and credentials sent via WhatsApp!",
+            doctor: newDoctor
+        });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Server error, please try again" });
+        console.error("Registration error:", error);
+        return res.status(500).json({ success: false, message: "Server error, please try again" });
     }
 });
 
@@ -296,6 +346,44 @@ DoctorRoute.post("/uploadPhoto/:doctorId", upload.single("photo"), async (req, r
 
         streamifier.createReadStream(file.buffer).pipe(stream);
     } catch (err) {
+        res.status(500).json({ message: "Server error", error: err.message });
+    }
+});
+
+DoctorRoute.post("/uploadCertifications/:doctorId", upload.array("certifications", 5), async (req, res) => {
+    try {
+        const doctorId = req.params.doctorId;
+        const files = req.files;
+
+        if (!files || files.length === 0) {
+            return res.status(400).json({ message: "No certification files uploaded" });
+        }
+
+        const uploadedUrls = [];
+
+        for (const file of files) {
+            const result = await new Promise((resolve, reject) => {
+                const stream = cloudinary.uploader.upload_stream(
+                    { folder: "doctor_certifications" },
+                    (error, result) => {
+                        if (error) reject(error);
+                        else resolve(result);
+                    }
+                );
+                streamifier.createReadStream(file.buffer).pipe(stream);
+            });
+
+            uploadedUrls.push(result.secure_url);
+        }
+
+        // Push new certifications to existing array
+        await DoctorSchema.findByIdAndUpdate(doctorId, {
+            $push: { certifications: { $each: uploadedUrls } }
+        });
+
+        res.status(200).json({ message: "Certifications uploaded", urls: uploadedUrls });
+    } catch (err) {
+        console.error(err);
         res.status(500).json({ message: "Server error", error: err.message });
     }
 });

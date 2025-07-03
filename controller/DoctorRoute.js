@@ -158,8 +158,10 @@ DoctorRoute.post("/register", async (req, res) => {
         consultsStudents,
         languagesSpoken,
         experienceYears,
+        experienceMonths,
         areaOfExpertise,
-        certifications
+        certifications,
+        certificationNames // ✅ NEW field added here
     } = req.body;
 
     if (!id || !Name || !City || !Qualification || !loginId || !password || !Gender || !Mobile || !Role || !platformType) {
@@ -186,8 +188,10 @@ DoctorRoute.post("/register", async (req, res) => {
             photo,
             languagesSpoken: languagesSpoken || [],
             experienceYears: experienceYears || 0,
+            experienceMonths: experienceMonths || 0,
             areaOfExpertise: areaOfExpertise || [],
-            certifications: certifications || []
+            certifications: certifications || [],
+            certificationNames: certificationNames || [] // ✅ Add this line
         };
 
         if (platformType === "marketplace") {
@@ -197,6 +201,7 @@ DoctorRoute.post("/register", async (req, res) => {
         const newDoctor = new DoctorSchema(doctorData);
         await newDoctor.save();
 
+        // ✅ Send credentials to doctor on WhatsApp
         if (Mobile) {
             const response = await fetch(`${WATI_API_URL}?whatsappNumber=91${Mobile}`, {
                 method: "POST",

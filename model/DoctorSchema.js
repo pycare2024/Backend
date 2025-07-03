@@ -6,7 +6,6 @@ const DoctorSchema = new mongoose.Schema({
     Name: { type: String },
     City: { type: String },
 
-    // ✅ Updated to allow multiple degrees
     Qualification: {
         type: [String],
         default: []
@@ -38,14 +37,26 @@ const DoctorSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    experienceMonths: {
+        type: Number,
+        default: 0
+    },
+
     areaOfExpertise: {
         type: [String],
         default: []
     },
+
     certifications: {
-        type: [String],
+        type: [String], // URLs or file references
+        default: []
+    },
+
+    certificationNames: {
+        type: [String], // Just names selected from frontend
         default: []
     }
+
 }, {
     collection: "Doctors",
     timestamps: true

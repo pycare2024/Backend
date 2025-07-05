@@ -1494,14 +1494,14 @@ AppointmentRoute.get("/appointments/latest/:mobile", async (req, res) => {
     }
 });
 
-// Route: POST /bookRetailAppointmentMarketplace
 AppointmentRoute.post("/bookRetailAppointmentMarketplace", async (req, res) => {
     try {
         const {
             doctor_id,
             schedule_id,
             slot_time,
-            patient_id // ✅ Patient already exists in DB
+            patient_id,
+            isStudentBooking // <-- NEW
         } = req.body;
 
         // Validate input
@@ -1513,17 +1513,30 @@ AppointmentRoute.post("/bookRetailAppointmentMarketplace", async (req, res) => {
             return res.status(400).json({ message: "Invalid schedule_id format." });
         }
 
+        // Get doctor & validate
+        const doctor = await DoctorSchema.findById(doctor_id);
+        if (!doctor) {
+            return res.status(404).json({ message: "Doctor not found." });
+        }
+
+        // Compute fees based on student booking
+        let consultationFee = 8;
+        if (doctor.consultsStudents && isStudentBooking === true) {
+            consultationFee = 4;
+        }
+
         // Check patient exists
         const patient = await patientSchema.findById(patient_id);
-        if (!patient) return res.status(404).json({ message: "Patient not found." });
+        if (!patient) {
+            return res.status(404).json({ message: "Patient not found." });
+        }
 
-        // Get doctor schedule
+        // Check & lock slot
         const schedule = await DoctorScheduleSchema.findById(schedule_id);
         if (!schedule || schedule.doctor_id.toString() !== doctor_id) {
             return res.status(404).json({ message: "Doctor schedule not found or mismatched." });
         }
 
-        // Lock slot
         const selectedSlot = schedule.Slots.find(
             (s) => s.startTime === slot_time && s.isBooked === false
         );
@@ -1536,9 +1549,7 @@ AppointmentRoute.post("/bookRetailAppointmentMarketplace", async (req, res) => {
         schedule.SlotsAvailable -= 1;
         await schedule.save();
 
-        const doctor = await DoctorSchema.findById(doctor_id);
-
-        // Create appointment
+        // Create appointment in DB (pending payment)
         const appointment = await new AppointmentRecordsSchema({
             patient_id: patient._id,
             patientName: patient.Name,
@@ -1551,11 +1562,13 @@ AppointmentRoute.post("/bookRetailAppointmentMarketplace", async (req, res) => {
             AppEndTime: selectedSlot.endTime,
             appointment_status: "scheduled",
             payment_status: "pending",
+            consultation_fee: consultationFee, // optional for record
+            isStudentBooking: isStudentBooking || false,
         }).save();
 
-        // Create Razorpay payment link
+        // Generate payment link
         const paymentLink = await razorpay.paymentLink.create({
-            amount: 100, // ₹100 x 100 paise
+            amount: consultationFee * 100, // Razorpay needs amount in paise
             currency: "INR",
             accept_partial: false,
             description: "PsyCare Appointment",
@@ -1567,12 +1580,13 @@ AppointmentRoute.post("/bookRetailAppointmentMarketplace", async (req, res) => {
             },
         });
 
+        // Save paymentLink ID
         await AppointmentRecordsSchema.updateOne(
             { _id: appointment._id },
             { $set: { payment_link_id: paymentLink.id } }
         );
 
-        // Send WhatsApp message
+        // Send WhatsApp payment link
         const shortLinkCode = paymentLink.short_url.split("/").pop();
         if (patient.Mobile) {
             await fetch(`${WATI_API_URL}?whatsappNumber=91${patient.Mobile}`, {

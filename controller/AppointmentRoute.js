@@ -1670,23 +1670,27 @@ AppointmentRoute.get("/checkPaymentStatus/:appointmentId", async (req, res) => {
 
 AppointmentRoute.get("/marketplacedoctorsWithSlots", async (req, res) => {
     try {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        const { date } = req.query;
 
-        const howDaysLater = new Date();
-        howDaysLater.setDate(today.getDate() + 15);
-        howDaysLater.setHours(23, 59, 59, 999);
+        if (!date) {
+            return res.status(400).json({ error: "Query parameter 'date' is required in YYYY-MM-DD format." });
+        }
 
-        // Step 1: Get all marketplace doctors
-        const doctors = await DoctorSchema.find({ isMarketplaceEnabled: true });
+        const targetDate = new Date(date);
+        targetDate.setHours(0, 0, 0, 0);
+
+        const endOfDay = new Date(targetDate);
+        endOfDay.setHours(23, 59, 59, 999);
+
+        // ✅ Step 1: Get ONLY marketplace doctors
+        const doctors = await DoctorSchema.find({ platformType: "marketplace" });
 
         const doctorsWithSlots = [];
 
-        // Step 2: For each doctor, check if they have any available slots
         for (const doctor of doctors) {
             const schedules = await DoctorScheduleSchema.find({
                 doctor_id: doctor._id,
-                Date: { $gte: today, $lte: howDaysLater },
+                Date: { $gte: targetDate, $lte: endOfDay },
                 SlotsAvailable: { $gt: 0 },
             });
 

@@ -1668,5 +1668,43 @@ AppointmentRoute.get("/checkPaymentStatus/:appointmentId", async (req, res) => {
     }
 });
 
+AppointmentRoute.get("/marketplacedoctorsWithSlots", async (req, res) => {
+    try {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const howDaysLater = new Date();
+        howDaysLater.setDate(today.getDate() + 15);
+        howDaysLater.setHours(23, 59, 59, 999);
+
+        // Step 1: Get all marketplace doctors
+        const doctors = await DoctorSchema.find({ isMarketplaceEnabled: true });
+
+        const doctorsWithSlots = [];
+
+        // Step 2: For each doctor, check if they have any available slots
+        for (const doctor of doctors) {
+            const schedules = await DoctorScheduleSchema.find({
+                doctor_id: doctor._id,
+                Date: { $gte: today, $lte: howDaysLater },
+                SlotsAvailable: { $gt: 0 },
+            });
+
+            const hasUnbookedSlots = schedules.some(schedule =>
+                schedule.Slots.some(slot => !slot.isBooked)
+            );
+
+            if (hasUnbookedSlots) {
+                doctorsWithSlots.push(doctor);
+            }
+        }
+
+        return res.status(200).json(doctorsWithSlots);
+    } catch (err) {
+        console.error("❌ Error in marketplacedoctorsWithSlots:", err);
+        return res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
 module.exports = AppointmentRoute;
 

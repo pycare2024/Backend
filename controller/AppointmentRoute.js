@@ -1520,9 +1520,9 @@ AppointmentRoute.post("/bookRetailAppointmentMarketplace", async (req, res) => {
         }
 
         // Compute fees based on student booking
-        let consultationFee = 1;
+        let consultationFee = 800;
         if (doctor.consultsStudents && isStudentBooking === true) {
-            consultationFee = 1;
+            consultationFee = 400;
         }
 
         // Check patient exists

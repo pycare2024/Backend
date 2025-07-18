@@ -17,6 +17,13 @@ const InitiateRefund = require("../Utility/InitiateRefund");
 const Corporate = require("../model/CorporateSchema");
 const CorporateSchema = require("../model/CorporateSchema");
 const NewScreeningTestSchema = require("../model/NewScreeningTestSchema");
+const multer = require("multer");
+const cloudinary = require("../Utility/cloudinary");
+
+// Use memory storage for multer
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
+
 
 
 const WATI_API_URL = "https://live-mt-server.wati.io/387357/api/v2/sendTemplateMessage";
@@ -1501,8 +1508,11 @@ AppointmentRoute.post("/bookRetailAppointmentMarketplace", async (req, res) => {
             schedule_id,
             slot_time,
             patient_id,
-            isStudentBooking // <-- NEW
+            isStudentBooking, // <-- NEW
+            studentIdUrl
         } = req.body;
+
+        console.log("Request Body ->",req.body);
 
         // Validate input
         if (!doctor_id || !schedule_id || !slot_time || !patient_id) {
@@ -1518,6 +1528,8 @@ AppointmentRoute.post("/bookRetailAppointmentMarketplace", async (req, res) => {
         if (!doctor) {
             return res.status(404).json({ message: "Doctor not found." });
         }
+
+        console.log("Student id url -> ",studentIdUrl);
 
         // Compute fees based on student booking
         let consultationFee = 800;
@@ -1564,6 +1576,7 @@ AppointmentRoute.post("/bookRetailAppointmentMarketplace", async (req, res) => {
             payment_status: "pending",
             consultation_fee: consultationFee, // optional for record
             isStudentBooking: isStudentBooking || false,
+            studentIdProofUrl: isStudentBooking ? studentIdUrl : undefined,
         }).save();
 
         // Generate payment link
@@ -1708,6 +1721,34 @@ AppointmentRoute.get("/marketplacedoctorsWithSlots", async (req, res) => {
         console.error("❌ Error in marketplacedoctorsWithSlots:", err);
         return res.status(500).json({ error: "Internal Server Error" });
     }
+});
+
+AppointmentRoute.post("/upload-student-id", upload.any(), async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: "No file uploaded." });
+    }
+
+    const file = req.files[0]; // Get the first uploaded file
+    const base64Image = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+
+    const result = await cloudinary.uploader.upload(base64Image, {
+      folder: "student_id_cards",
+      public_id: `student_${Date.now()}`,
+      resource_type: "image",
+    });
+
+    console.log("Url -> ", result.secure_url);
+
+    res.status(200).json({
+      success: true,
+      url: result.secure_url,
+      public_id: result.public_id,
+    });
+  } catch (err) {
+    console.error("❌ Upload Error:", err);
+    res.status(500).json({ error: "Upload failed. Please try again." });
+  }
 });
 
 module.exports = AppointmentRoute;

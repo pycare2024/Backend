@@ -7,8 +7,8 @@ const AppointmentRecordsSchema = new mongoose.Schema({
     patientPhoneNumber: { type: Number },
     doctor_id: { type: ObjectId, ref: 'Doctor' },
     doctorScheduleId: { type: ObjectId },
-    DateOfAppointment: { type: Date },       // e.g. 2025-03-31
-    AppStartTime: { type: String },          // e.g. "10:00 AM"
+    DateOfAppointment: { type: Date },
+    AppStartTime: { type: String },
     AppEndTime: { type: String },
     appointment_status: {
         type: String,
@@ -30,10 +30,13 @@ const AppointmentRecordsSchema = new mongoose.Schema({
     feedbackGiven: { type: Boolean, default: false },
     ORSGiven: { type: Boolean, default: false },
 
-    // ✅ New fields for follow-up logic
-    isFollowUp: { type: Boolean, default: false },  // whether this is a follow-up appointment
-    linkedToAppointmentId: { type: ObjectId, ref: 'AppointmentRecordsSchema', default: null }, // reference to previous appointment
-    followUpRecommended: { type: Boolean, default: false } // whether the doctor recommended a follow-up
+    // ✅ Follow-up logic
+    isFollowUp: { type: Boolean, default: false },
+    linkedToAppointmentId: { type: ObjectId, ref: 'AppointmentRecordsSchema', default: null },
+    followUpRecommended: { type: Boolean, default: false },
+
+    // ✅ New field for student ID proof
+    studentIdProofUrl: { type: String, default: null }  // Cloudinary URL
 }, {
     collection: "AppointmentRecords"
 });

@@ -1532,9 +1532,9 @@ AppointmentRoute.post("/bookRetailAppointmentMarketplace", async (req, res) => {
         console.log("Student id url -> ",studentIdUrl);
 
         // Compute fees based on student booking
-        let consultationFee = 800;
+        let consultationFee = 944;
         if (doctor.consultsStudents && isStudentBooking === true) {
-            consultationFee = 400;
+            consultationFee = 472;
         }
 
         // Check patient exists

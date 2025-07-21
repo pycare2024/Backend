@@ -16,7 +16,7 @@ GeminiRoute.post("/ask", async (req, res) => {
 
     try {
         const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-001:generateContent?key=${API_KEY}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${API_KEY}`,
             {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -47,7 +47,7 @@ GeminiRoute.post("/ask", async (req, res) => {
 GeminiRoute.post("/generateReport", async (req, res) => {
     const { scores, patientName } = req.body;
 
-    console.log("I am gemini putting scores -> ",scores);
+    console.log("I am gemini putting scores -> ", scores);
 
     if (!scores || typeof scores !== "object" || Object.keys(scores).length === 0) {
         return res.status(400).json({ message: "At least one score is required to generate a report." });

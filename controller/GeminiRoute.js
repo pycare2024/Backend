@@ -201,7 +201,7 @@ ${JSON.stringify(demographicData, null, 2)}
 `;
 
         const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-001:generateContent?key=${API_KEY}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${API_KEY}`,
             {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -230,6 +230,8 @@ ${JSON.stringify(demographicData, null, 2)}
 
 GeminiRoute.post("/summarizeScreeningSummary", async (req, res) => {
     const { screeningData } = req.body;
+
+    console.log("Screening Data -> ",screeningData);
 
     if (!screeningData) {
         return res.status(400).json({ message: "Screening data is required" });
@@ -261,7 +263,7 @@ ${JSON.stringify(screeningData, null, 2)}
 
         // Sending the request to Gemini AI for content generation
         const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-001:generateContent?key=${API_KEY}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${API_KEY}`,
             {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -323,7 +325,7 @@ ${formatted}
 
     try {
         const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-001:generateContent?key=${API_KEY}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${API_KEY}`,
             {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },

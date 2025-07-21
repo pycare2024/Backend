@@ -721,7 +721,7 @@ CorporateRoute.get("/:companyCode/clinical-impact", async (req, res) => {
       DateOfTest: { $gte: start, $lte: end }
     });
 
-    // console.log(screenings);
+    console.log(`Total Screenings found -> ${screenings.length}`);
 
     const severityCounts = {
       mild: 0,
@@ -776,18 +776,18 @@ CorporateRoute.get("/:companyCode/clinical-impact", async (req, res) => {
     for (const record of screenings) {
       const { scores, patient_id, DateOfTest } = record;
 
-      console.log("Logging Scores=>", scores);
+      // console.log("Logging Scores=>", scores);
 
       // If scores is a Map, convert it to a plain object or iterate over it
       if (scores && scores instanceof Map) {
         // Convert Map to a plain object
         const scoresObject = Object.fromEntries(scores);
 
-        console.log("Converted Scores=>", scoresObject);
+        // console.log("Converted Scores=>", scoresObject);
 
         // Iterate through the keys in the plain object
         for (const tool in scoresObject) {
-          console.log("Logging tool=>", tool);
+          // console.log("Logging tool=>", tool);
           const level = toolSeverity(tool, scoresObject[tool]);
           if (level) severityCounts[level]++;
         }
@@ -802,44 +802,59 @@ CorporateRoute.get("/:companyCode/clinical-impact", async (req, res) => {
       patientRepeatTests[patient_id.toString()] = (patientRepeatTests[patient_id.toString()] || 0) + 1;
     }
 
-    console.log("Logging patient repeat tests=>", patientRepeatTests);
+    // console.log("Logging patient repeat tests=>", patientRepeatTests);
 
-    const patients = await patientSchema.find({ companyCode: "ME8655" }).select('_id');
-    const patientIds = patients.map(p => p._id);
+    const patients = await patientSchema.find({ companyCode: companyCode }).select('_id');
+    const patientIds = (await ScreeningTestSchema.find({ companyCode: companyCode }).select('patient_id')).map(p => p.patient_id);
 
-    // console.log(patientIds);
+    console.log(`Total Patients from the Company -> ${companyCode} is -> ${patients.length}\n`);
+    console.log(`Patient's ids who took screening tests -> ${patientIds.length}\n`);
+    console.log("Patients who took screening tests ->", patientIds);
 
     const appointments = await AppointmentRecordsSchema.find({
       patient_id: { $in: patientIds },
       DateOfAppointment: { $gte: start, $lte: end },
-      appointment_status: { $in: ["completed"] }
+      // appointment_status: { $in: ["completed"] }
     });
 
-    console.log("Appointments=>", appointments);
+    let completedCount = 0;
+    let noShowCount = 0;
+    let cancelledCount = 0;
+
+    console.log(`appointments count -> ${appointments.length}`);
 
     for (const appointment of appointments) {
       const patientIdStr = appointment.patient_id?.toString();
       const tests = patientTestDates.get(patientIdStr) || [];
 
-      console.log("Logging tests=>", tests);
+      // console.log("Logging tests=>", tests);
 
-      console.log("Patient Engagement Map=>", patientEngagementMap);
+      // console.log("Patient Engagement Map=>", patientEngagementMap);
 
       for (const testDate of tests) {
 
         const appDate = new Date(appointment.DateOfAppointment).toISOString().split('T')[0];
         const testDateOnly = new Date(testDate).toISOString().split('T')[0];
 
-        console.log("Date of app=>", appDate);
-        console.log("Date of tests=>", testDateOnly);
+        // console.log("Date of app=>", appDate);
+        // console.log("Date of tests=>", testDateOnly);
 
         if (appDate >= testDateOnly) {
           patientEngagementMap.set(patientIdStr, true);
+
+          const status = appointment.appointment_status?.toLowerCase().trim();
+
+          console.log("Appointment Status ->", status);
+
+          if (status === "completed") completedCount++;
+          else if (status === "cancelled") cancelledCount += 1;
+          else if (status === "no_show") noShowCount += 1;
+
           break;
         }
       }
 
-      console.log("Patient Engagement Map=>", patientEngagementMap);
+      // console.log("Patient Engagement Map=>", patientEngagementMap);
 
       const followUpDetails = [];
 
@@ -871,7 +886,7 @@ CorporateRoute.get("/:companyCode/clinical-impact", async (req, res) => {
 
       console.log("Follow Up Details=>", JSON.stringify(followUpDetails, null, 2));
 
-      const geminiResponse = await fetch("https://backend-xhl4.onrender.com/GeminiRoute/analyze-trends", {
+      const geminiResponse = await fetch("http://localhost:4000/GeminiRoute/analyze-trends", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ followUpDetails }),  // ← replace trendGroups with followUpDetails
@@ -887,10 +902,19 @@ CorporateRoute.get("/:companyCode/clinical-impact", async (req, res) => {
       endDate,
       totalScreenings: screenings.length,
       severityBreakdown: severityCounts,
+      appointmentBreakdown: {
+        Total_appointments: appointments.length,
+        completed: completedCount,
+        no_show: noShowCount,
+        cancelled: cancelledCount,
+        followups: appointments.length - (completedCount + noShowCount + cancelledCount),
+      },
       followUpAppointments: patientEngagementMap.size,
       repeatScreenings: Object.values(patientRepeatTests).filter(c => c > 1).length,
       followUpTrends: trendSummary,
     };
+
+    console.log("Appointment Breakdown -> ", result.appointmentBreakdown);
 
     res.json(result);
   } catch (error) {

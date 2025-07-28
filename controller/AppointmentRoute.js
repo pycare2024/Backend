@@ -193,10 +193,9 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
 
         // Check if screening test exists
         const existingAssessment = await NewScreeningTestSchema.findOne({ patient_id });
-
         if (!existingAssessment) {
             return res.status(403).json({
-                message: "🧠 Please complete the psychometric test before booking an appointment.You cannot book an appointment without taking screening test. Go to Home page and Take Psychometric Assessment First to Book an Appointment !"
+                message: "🧠 Please complete the psychometric test before booking an appointment. Go to Home page and take the Psychometric Assessment first!"
             });
         }
 
@@ -223,7 +222,7 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
         // STEP 1: Get eligible doctor IDs based on userType
         const eligibleDoctorIds = await DoctorSchema.find({
             Role: userType === "corporate" ? "Therapist" : "Consultant",
-            platformType: "corporate" // 👈 filters by "corporate", "school", or "marketplace"
+            platformType: "corporate"
         }).distinct("_id");
 
         const availableDoctors = await DoctorScheduleSchema.find({
@@ -293,10 +292,12 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             AppStartTime: selectedSlot.startTime,
             AppEndTime: selectedSlot.endTime,
             WeekDay: selectedDoctor.WeekDay,
-            payment_status: userType === "corporate" ? "confirmed" : "pending",
+            payment_status: "confirmed",
             userType,
-            empId: userType === "corporate" ? empId : undefined,
-            companyCode: userType === "corporate" ? companyCode : undefined,
+            empId,
+            companyCode,
+            meeting_link: generateJitsiMeetingLink(),
+            appointment_fees: 750 // ✅ Set correct corporate fee
         };
 
         const doctor = await DoctorSchema.findById(selectedDoctor.doctor_id);
@@ -309,111 +310,38 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
         const clinicName = "PsyCare";
 
         // CORPORATE FLOW
-        if (userType === "corporate") {
-            const company = await Corporate.findOne({ companyCode });
-            if (!company) return res.status(404).json({ message: "Company not found." });
-            if (company.totalCredits <= 0) {
-                return res.status(403).json({ message: "Insufficient company credits." });
-            }
-
-            company.totalCredits -= 1;
-            await company.save();
-
-            appointmentData.meeting_link = generateJitsiMeetingLink();
-            const savedAppointment = await new AppointmentRecordsSchema(appointmentData).save();
-
-            await DoctorScheduleSchema.updateOne(
-                { _id: selectedDoctor._id, "Slots.startTime": selectedSlot.startTime },
-                {
-                    $set: { "Slots.$.isBooked": true, "Slots.$.bookedBy": patient_id },
-                    $inc: { SlotsAvailable: -1 }
-                }
-            );
-
-            await Corporate.updateOne(
-                { companyCode, "associatedPatients.empId": empId },
-                {
-                    $push: {
-                        "associatedPatients.$.visits": {
-                            date: appointmentDate,
-                            purpose: "Appointment"
-                        }
-                    }
-                }
-            );
-
-            // WhatsApp confirmation to patient
-            if (phone) {
-                await fetch(`${WATI_API_URL}?whatsappNumber=91${phone}`, {
-                    method: "POST",
-                    headers: {
-                        Authorization: WATI_API_KEY,
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                        template_name: "appointment_details",
-                        broadcast_name: "CorporateAppointmentConfirm",
-                        parameters: [
-                            { name: "name", value: patientName },
-                            { name: "appointment_date", value: DofAppt },
-                            { name: "appointment_time", value: apptTime },
-                            { name: "doctor_name", value: DoctorName },
-                            { name: "clinic_name", value: clinicName },
-                            { name: "payment_id", value: "Corporate Package" },
-                            { name: "link", value: "Your appointment is confirmed and covered under your company’s plan. ✅" }
-                        ]
-                    })
-                });
-            }
-
-            // WhatsApp notification to doctor
-            if (DoctorPhNo) {
-                await fetch(`${WATI_API_URL}?whatsappNumber=91${DoctorPhNo}`, {
-                    method: "POST",
-                    headers: {
-                        Authorization: WATI_API_KEY,
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                        template_name: "new_appointment_notification_to_doctor",
-                        broadcast_name: "appointment_notification_to_doctor",
-                        parameters: [
-                            { name: "Doctor_Name", value: DoctorName },
-                            { name: "Patient_Name", value: patientName },
-                            { name: "Date", value: DofAppt },
-                            { name: "Time_Slot", value: `${selectedSlot.startTime} - ${selectedSlot.endTime}` }
-                        ]
-                    })
-                });
-            }
-
-            return res.status(200).json({
-                message: "Appointment booked (corporate)",
-                appointmentDetails: appointmentData,
-                doctorName: DoctorName,
-                remainingCredits: company.totalCredits
-            });
+        const company = await Corporate.findOne({ companyCode });
+        if (!company) return res.status(404).json({ message: "Company not found." });
+        if (company.totalCredits <= 0) {
+            return res.status(403).json({ message: "Insufficient company credits." });
         }
 
-        // RETAIL FLOW
+        company.totalCredits -= 1;
+        await company.save();
+
         const savedAppointment = await new AppointmentRecordsSchema(appointmentData).save();
 
-        const paymentLinkResponse = await razorpay.paymentLink.create({
-            amount: 100,
-            currency: "INR",
-            accept_partial: false,
-            description: "Appointment Booking Fee",
-            notify: { sms: true },
-            reference_id: `appointment_${savedAppointment._id}`,
-            notes: { appointment_id: savedAppointment._id.toString(), patient_id },
-        });
-
-        await AppointmentRecordsSchema.updateOne(
-            { _id: savedAppointment._id },
-            { $set: { payment_link_id: paymentLinkResponse.id } }
+        await DoctorScheduleSchema.updateOne(
+            { _id: selectedDoctor._id, "Slots.startTime": selectedSlot.startTime },
+            {
+                $set: { "Slots.$.isBooked": true, "Slots.$.bookedBy": patient_id },
+                $inc: { SlotsAvailable: -1 }
+            }
         );
 
-        const uniquePaymentCode = paymentLinkResponse.short_url.split("/").pop();
+        await Corporate.updateOne(
+            { companyCode, "associatedPatients.empId": empId },
+            {
+                $push: {
+                    "associatedPatients.$.visits": {
+                        date: appointmentDate,
+                        purpose: "Appointment"
+                    }
+                }
+            }
+        );
+
+        // WhatsApp confirmation to patient
         if (phone) {
             await fetch(`${WATI_API_URL}?whatsappNumber=91${phone}`, {
                 method: "POST",
@@ -422,21 +350,47 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
-                    template_name: "payment_link",
-                    broadcast_name: "PaymentLinkBroadcast",
+                    template_name: "appointment_details",
+                    broadcast_name: "CorporateAppointmentConfirm",
                     parameters: [
-                        { name: "1", value: patientName },
-                        { name: "2", value: uniquePaymentCode }
+                        { name: "name", value: patientName },
+                        { name: "appointment_date", value: DofAppt },
+                        { name: "appointment_time", value: apptTime },
+                        { name: "doctor_name", value: DoctorName },
+                        { name: "clinic_name", value: clinicName },
+                        { name: "payment_id", value: "Corporate Package" },
+                        { name: "link", value: "Your appointment is confirmed and covered under your company’s plan. ✅" }
                     ]
-                }),
+                })
+            });
+        }
+
+        // WhatsApp notification to doctor
+        if (DoctorPhNo) {
+            await fetch(`${WATI_API_URL}?whatsappNumber=91${DoctorPhNo}`, {
+                method: "POST",
+                headers: {
+                    Authorization: WATI_API_KEY,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    template_name: "new_appointment_notification_to_doctor",
+                    broadcast_name: "appointment_notification_to_doctor",
+                    parameters: [
+                        { name: "Doctor_Name", value: DoctorName },
+                        { name: "Patient_Name", value: patientName },
+                        { name: "Date", value: DofAppt },
+                        { name: "Time_Slot", value: `${selectedSlot.startTime} - ${selectedSlot.endTime}` }
+                    ]
+                })
             });
         }
 
         return res.status(200).json({
-            message: "Appointment booked (retail, pending payment).",
+            message: "Appointment booked (corporate)",
             appointmentDetails: savedAppointment,
-            doctorName: doctor?.Name,
-            paymentLink: paymentLinkResponse.short_url,
+            doctorName: DoctorName,
+            remainingCredits: company.totalCredits
         });
 
     } catch (err) {
@@ -1038,7 +992,8 @@ AppointmentRoute.post("/markCompleted/:appointmentId", async (req, res) => {
         }
 
         const doctorId = appointment.doctor_id;
-        const amount = 750;
+        const appointmentFee = appointment.appointment_fees || 0;
+        const amount = Math.round(appointmentFee * 0.75);
 
         await DoctorTransactionsSchema.create({
             doctorId,
@@ -1180,7 +1135,7 @@ AppointmentRoute.post("/markNoShow/:appointmentId", async (req, res) => {
 
         // ✅ Pay the doctor (same as completed)
         const doctorId = appointment.doctor_id;
-        const amount = 500; // fixed or dynamic
+        const amount = Math.round((appointment.appointment_fees || 0) * 0.75) / 2;
 
         await DoctorTransactionsSchema.create({
             doctorId,
@@ -1512,7 +1467,7 @@ AppointmentRoute.post("/bookRetailAppointmentMarketplace", async (req, res) => {
             studentIdUrl
         } = req.body;
 
-        console.log("Request Body ->",req.body);
+        console.log("Request Body ->", req.body);
 
         // Validate input
         if (!doctor_id || !schedule_id || !slot_time || !patient_id) {
@@ -1529,13 +1484,7 @@ AppointmentRoute.post("/bookRetailAppointmentMarketplace", async (req, res) => {
             return res.status(404).json({ message: "Doctor not found." });
         }
 
-        console.log("Student id url -> ",studentIdUrl);
-
-        // Compute fees based on student booking
-        let consultationFee = 944;
-        if (doctor.consultsStudents && isStudentBooking === true) {
-            consultationFee = 472;
-        }
+        console.log("Student id url -> ", studentIdUrl);
 
         // Check patient exists
         const patient = await patientSchema.findById(patient_id);
@@ -1549,13 +1498,28 @@ AppointmentRoute.post("/bookRetailAppointmentMarketplace", async (req, res) => {
             return res.status(404).json({ message: "Doctor schedule not found or mismatched." });
         }
 
+        // Find & validate the slot
+        console.log("Schedule ->", schedule);
         const selectedSlot = schedule.Slots.find(
             (s) => s.startTime === slot_time && s.isBooked === false
         );
+
+        console.log("Selected slot ->", schedule);
         if (!selectedSlot) {
             return res.status(409).json({ message: "Selected slot already booked or invalid." });
         }
 
+        // Calculate consultation fee with 18% GST
+        const baseFee = schedule.pricePerSlot || 944;
+        console.log("base fee ->", baseFee);
+        let consultationFee = baseFee + Math.round(baseFee * 0.18); // Add GST
+
+        // // Apply 50% student discount if applicable
+        // if (doctor.consultsStudents && isStudentBooking === true) {
+        //     consultationFee = Math.floor(consultationFee / 2);
+        // }
+
+        // Lock the slot
         selectedSlot.isBooked = true;
         selectedSlot.bookedBy = patient._id;
         schedule.SlotsAvailable -= 1;
@@ -1577,6 +1541,7 @@ AppointmentRoute.post("/bookRetailAppointmentMarketplace", async (req, res) => {
             consultation_fee: consultationFee, // optional for record
             isStudentBooking: isStudentBooking || false,
             studentIdProofUrl: isStudentBooking ? studentIdUrl : undefined,
+            appointment_fees: baseFee,
         }).save();
 
         // Generate payment link
@@ -1652,8 +1617,11 @@ AppointmentRoute.get("/marketplace/getAvailableSlots/:doctorId", async (req, res
             schedule_id: schedule._id,
             date: schedule.Date,
             weekday: schedule.WeekDay,
+            pricePerSlot: schedule.pricePerSlot || null, // include price per day
             slots: schedule.Slots.filter(slot => !slot.isBooked),
         }));
+
+        console.log("Slot details ->", result);
 
         return res.status(200).json({ availableSchedules: result });
     } catch (err) {
@@ -1724,31 +1692,31 @@ AppointmentRoute.get("/marketplacedoctorsWithSlots", async (req, res) => {
 });
 
 AppointmentRoute.post("/upload-student-id", upload.any(), async (req, res) => {
-  try {
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ error: "No file uploaded." });
+    try {
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ error: "No file uploaded." });
+        }
+
+        const file = req.files[0]; // Get the first uploaded file
+        const base64Image = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+
+        const result = await cloudinary.uploader.upload(base64Image, {
+            folder: "student_id_cards",
+            public_id: `student_${Date.now()}`,
+            resource_type: "image",
+        });
+
+        console.log("Url -> ", result.secure_url);
+
+        res.status(200).json({
+            success: true,
+            url: result.secure_url,
+            public_id: result.public_id,
+        });
+    } catch (err) {
+        console.error("❌ Upload Error:", err);
+        res.status(500).json({ error: "Upload failed. Please try again." });
     }
-
-    const file = req.files[0]; // Get the first uploaded file
-    const base64Image = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
-
-    const result = await cloudinary.uploader.upload(base64Image, {
-      folder: "student_id_cards",
-      public_id: `student_${Date.now()}`,
-      resource_type: "image",
-    });
-
-    console.log("Url -> ", result.secure_url);
-
-    res.status(200).json({
-      success: true,
-      url: result.secure_url,
-      public_id: result.public_id,
-    });
-  } catch (err) {
-    console.error("❌ Upload Error:", err);
-    res.status(500).json({ error: "Upload failed. Please try again." });
-  }
 });
 
 module.exports = AppointmentRoute;

@@ -36,7 +36,9 @@ const AppointmentRecordsSchema = new mongoose.Schema({
     followUpRecommended: { type: Boolean, default: false },
 
     // ✅ New field for student ID proof
-    studentIdProofUrl: { type: String, default: null }  // Cloudinary URL
+    studentIdProofUrl: { type: String, default: null } , // Cloudinary URL
+    appointment_fees: { type: Number, default: 0 },
+    
 }, {
     collection: "AppointmentRecords"
 });

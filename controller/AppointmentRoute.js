@@ -297,7 +297,7 @@ AppointmentRoute.post("/bookAppointment", async (req, res) => {
             empId,
             companyCode,
             meeting_link: generateJitsiMeetingLink(),
-            appointment_fees: 750 // ✅ Set correct corporate fee
+            appointment_fees: 1000 // ✅ Set correct corporate fee
         };
 
         const doctor = await DoctorSchema.findById(selectedDoctor.doctor_id);

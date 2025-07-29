@@ -1651,29 +1651,35 @@ AppointmentRoute.get("/checkPaymentStatus/:appointmentId", async (req, res) => {
 
 AppointmentRoute.get("/marketplacedoctorsWithSlots", async (req, res) => {
     try {
-        const { date } = req.query;
+        const { date, pricePerSlot } = req.query;
 
         if (!date) {
-            return res.status(400).json({ error: "Query parameter 'date' is required in YYYY-MM-DD format." });
+            return res.status(400).json({ error: "date is required" });
         }
 
-        const targetDate = new Date(date);
-        targetDate.setHours(0, 0, 0, 0);
+        const [year, month, day] = date.split('-').map(Number);
+        const targetDateStart = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
+        const targetDateEnd = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
 
-        const endOfDay = new Date(targetDate);
-        endOfDay.setHours(23, 59, 59, 999);
-
-        // ✅ Step 1: Get ONLY marketplace doctors
         const doctors = await DoctorSchema.find({ platformType: "marketplace" });
 
         const doctorsWithSlots = [];
 
         for (const doctor of doctors) {
-            const schedules = await DoctorScheduleSchema.find({
+            const scheduleQuery = {
                 doctor_id: doctor._id,
-                Date: { $gte: targetDate, $lte: endOfDay },
-                SlotsAvailable: { $gt: 0 },
-            });
+                Date: { $gte: targetDateStart, $lte: targetDateEnd },
+                SlotsAvailable: { $gt: 0 }
+            };
+
+            // ✅ Add price filter only if given
+            if (pricePerSlot) {
+                scheduleQuery.pricePerSlot = Number(pricePerSlot);
+            }
+
+            // console.log("Schedule query ->", scheduleQuery);
+
+            const schedules = await DoctorScheduleSchema.find(scheduleQuery);
 
             const hasUnbookedSlots = schedules.some(schedule =>
                 schedule.Slots.some(slot => !slot.isBooked)
@@ -1684,9 +1690,9 @@ AppointmentRoute.get("/marketplacedoctorsWithSlots", async (req, res) => {
             }
         }
 
-        return res.status(200).json(doctorsWithSlots);
+        res.status(200).json(doctorsWithSlots);
     } catch (err) {
-        console.error("❌ Error in marketplacedoctorsWithSlots:", err);
+        console.error("❌ Error in /marketplacedoctorsWithSlots:", err);
         return res.status(500).json({ error: "Internal Server Error" });
     }
 });

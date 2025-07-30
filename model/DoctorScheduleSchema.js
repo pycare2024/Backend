@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const { ObjectId } = mongoose.Schema.Types;
 
 const DoctorScheduleSchema = new mongoose.Schema({
-  doctor_id: { type: ObjectId, required: true, ref: "Doctor" },
+  doctor_id: { type: ObjectId, required: true, ref: "DoctorSchema" },
   Date: { type: Date, required: true },
   WeekDay: { type: String },
   SlotsAvailable: { type: Number },

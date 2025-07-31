@@ -25,40 +25,40 @@ DoctorRoute.get("/", (req, res) => {
 
 
 DoctorRoute.get("/getValidDoctorSchedules", async (req, res) => {
-  try {
-    const { date } = req.query;
+    try {
+        const { startDate, endDate } = req.query;
 
-    if (!date) {
-      return res.status(400).json({ error: "Date query param is required" });
+        if (!startDate || !endDate) {
+            return res.status(400).json({ error: "Both startDate and endDate are required" });
+        }
+
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+
+        console.log("Fetching schedules from:", start, "to:", end);
+
+        const schedules = await DoctorScheduleSchema.find({
+            Date: { $gte: start, $lte: end }
+        }).populate("doctor_id", "Name City Role platformType experienceYears experienceMonths");
+
+        const validSchedules = schedules.filter(s => s.doctor_id);
+
+        res.status(200).json({
+            success: true,
+            total: validSchedules.length,
+            schedules: validSchedules
+        });
+
+    } catch (err) {
+        console.error("❌ Error fetching doctor schedules:", err.message, err.stack);
+        res.status(500).json({
+            error: "Failed to fetch doctor info",
+            details: err.message,
+        });
     }
-
-    const targetDate = new Date(date);
-    targetDate.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
-
-    console.log("Fetching schedules for date range:", targetDate, endOfDay);
-
-    const schedules = await DoctorScheduleSchema.find({
-      Date: { $gte: targetDate, $lte: endOfDay }
-    }).populate("doctor_id", "Name City Role platformType experienceYears experienceMonths");
-
-    // Optionally, filter again if needed (though doctor_id will always be present)
-    const validSchedules = schedules.filter(s => s.doctor_id);
-
-    res.status(200).json({
-      success: true,
-      total: validSchedules.length,
-      schedules: validSchedules
-    });
-
-  } catch (err) {
-    console.error("❌ Error fetching doctor schedules:", err.message, err.stack);
-    res.status(500).json({
-      error: "Failed to fetch doctor info",
-      details: err.message,
-    });
-  }
 });
 
 DoctorRoute.get("/marketplacedoctors", (req, res) => {

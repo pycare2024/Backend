@@ -802,8 +802,8 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
 
             // Notify fixed admins (Vivek and Dhruv)
             const admins = [
-                { name: "Vivek", number: "8107191657" },
-                { name: "Dhruv", number: "9871535106" }
+                { name: "Dhruv", number: "8107191657" },
+                { name: "Vivek", number: "9871535106" }
             ];
 
             for (const admin of admins) {
@@ -1580,7 +1580,7 @@ AppointmentRoute.post("/bookRetailAppointmentMarketplace", async (req, res) => {
 
         // Generate payment link
         const paymentLink = await razorpay.paymentLink.create({
-            amount: 1 * 100, // Razorpay needs amount in paise
+            amount: consultationFee * 100, // Razorpay needs amount in paise
             currency: "INR",
             accept_partial: false,
             description: "PsyCare Appointment",

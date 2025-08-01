@@ -1580,7 +1580,7 @@ AppointmentRoute.post("/bookRetailAppointmentMarketplace", async (req, res) => {
 
         // Generate payment link
         const paymentLink = await razorpay.paymentLink.create({
-            amount: consultationFee * 100, // Razorpay needs amount in paise
+            amount: 1 * 100, // Razorpay needs amount in paise
             currency: "INR",
             accept_partial: false,
             description: "PsyCare Appointment",

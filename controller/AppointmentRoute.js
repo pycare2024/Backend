@@ -800,6 +800,40 @@ AppointmentRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
                 }
             }
 
+            // Notify fixed admins (Vivek and Dhruv)
+            const admins = [
+                { name: "Vivek", number: "8107191657" },
+                { name: "Dhruv", number: "9871535106" }
+            ];
+
+            for (const admin of admins) {
+                try {
+                    await fetch(`${WATI_API_URL}?whatsappNumber=91${admin.number}`, {
+                        method: "POST",
+                        headers: {
+                            Authorization: WATI_API_KEY,
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                            template_name: "appointment_notification_reminder", // 👈 your new template name
+                            broadcast_name: "appointment_alert_admin",
+                            parameters: [
+                                { name: "1", value: admin.name },                // Hello {{1}},
+                                { name: "2", value: DoctorName },               // Employee Name: {{2}}
+                                { name: "3", value: doctor.platformType },
+                                { name: "4", value: patientName },              // Specialist: {{3}}
+                                { name: "5", value: `${DofAppt}, ${apptTime}` }, // Date & Time: {{4}}
+                                { name: "6", value: "Online" }, // Mode: {{5}}
+                                { name: "7", value: appointment._id.toString() } // Appointment ID: {{6}}
+                            ]
+                        })
+                    });
+                }
+                catch (err) {
+                    console.error(`Failed to send WhatsApp to admin ${admin.name}:`, err.message);
+                }
+            }
+
             return res.status(200).json({ message: "Payment verified and appointment confirmed." });
         }
 

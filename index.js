@@ -23,6 +23,7 @@ const FeedbackRoute = require("./controller/FeedbackRoute");
 const StudentPatientRoute = require("./controller/StudentPatientRoute");
 const CorporateMasterRoute = require("./controller/CorporateMasterRoute");
 const AppointmentReminderCronJob = require("./Utility/appointmentReminderCron");
+const WhatsappRoute = require("./controller/WhatsappRoute");
 
 
 dotenv.config();
@@ -62,6 +63,7 @@ app.use("/FeedbackRoute",FeedbackRoute);
 app.use("/StudentPatientRoute",StudentPatientRoute);
 app.use("/CorporateMasterRoute",CorporateMasterRoute);
 AppointmentReminderCronJob();
+app.use("/WhatsappRoute",WhatsappRoute);
 
 app.listen(4000,()=>{
     console.log("Server started at 4000");

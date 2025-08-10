@@ -18,13 +18,23 @@ WhatsappRoute.get("/filteredDoctorsWithSlots", async (req, res) => {
         const targetDateStart = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
         const targetDateEnd = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
 
-        // Step 1: Fetch all marketplace doctors with other filters
+        // Step 1: Fetch all marketplace doctors with filters
         const baseFilters = { platformType: "marketplace" };
-        if (isStudent) baseFilters.consultsStudents = isStudent === 'true';
+
+        // Only filter consultsStudents if isStudent === 'true'
+        if (isStudent === 'true') {
+            baseFilters.consultsStudents = true;
+        }
+
         if (language) {
             baseFilters.languagesSpoken = { $elemMatch: { $regex: new RegExp(`^${language}$`, 'i') } };
         }
+
         const allDoctors = await DoctorSchema.find(baseFilters);
+
+        if (allDoctors.length === 0) {
+            return res.status(404).json({ message: "No doctors found matching your criteria." });
+        }
 
         // Step 2: First filter by gender preference
         let genderFilteredDoctors = allDoctors;
@@ -50,15 +60,20 @@ WhatsappRoute.get("/filteredDoctorsWithSlots", async (req, res) => {
 
         let doctorsWithSlots = await getDoctorsWithSlots(genderFilteredDoctors);
 
-        // Step 4: If less than 3 available, fetch from the *other gender*
-        if (doctorsWithSlots.length < 3) {
+        // Step 4: If less than limit available, fetch from the *other gender*
+        if (doctorsWithSlots.length < limit) {
             const otherGenderDocs = allDoctors.filter(doc => doc.Gender !== gender);
             const othersWithSlots = await getDoctorsWithSlots(otherGenderDocs);
 
             // Merge without duplicates
-            doctorsWithSlots = [...doctorsWithSlots, ...othersWithSlots.filter(
-                doc => !doctorsWithSlots.some(d => d._id.equals(doc._id))
-            )];
+            doctorsWithSlots = [
+                ...doctorsWithSlots,
+                ...othersWithSlots.filter(doc => !doctorsWithSlots.some(d => d._id.equals(doc._id)))
+            ];
+        }
+
+        if (doctorsWithSlots.length === 0) {
+            return res.status(404).json({ message: "No doctors found with available slots for the selected date and criteria." });
         }
 
         // Step 5: Shuffle and paginate
@@ -68,8 +83,13 @@ WhatsappRoute.get("/filteredDoctorsWithSlots", async (req, res) => {
         }
         const paginatedDoctors = doctorsWithSlots.slice((page - 1) * limit, page * limit);
 
-        if (paginatedDoctors.length < 3) {
-            return res.status(200).json({ message: "Not enough doctors found" });
+        if (paginatedDoctors.length === 0) {
+            return res.status(404).json({ message: "No doctors available on this page." });
+        }
+
+        if (paginatedDoctors.length < limit) {
+            // Optional: you can still proceed or notify less doctors available
+            // Here just proceed normally
         }
 
         const docVars = paginatedDoctors.map(doc => ({
@@ -116,10 +136,8 @@ WhatsappRoute.get("/filteredDoctorsWithSlots", async (req, res) => {
         }
 
         if (!whatsappResponse.ok) {
-            console.log("Status:", whatsappResponse.status);
-            console.log("Headers:", Object.fromEntries(whatsappResponse.headers));
-            console.log("Raw text:", text);
             console.error("❌ Failed to send WhatsApp message:", data);
+            return res.status(500).json({ message: "Failed to send WhatsApp message." });
         } else {
             console.log("✅ WhatsApp message sent:", data);
         }
@@ -137,7 +155,7 @@ WhatsappRoute.get("/filteredDoctorsWithSlots", async (req, res) => {
             areaOfExpertise: doctor.areaOfExpertise
         }));
 
-        res.status(200).json({ message: "Doctors sent via WhatsApp", doctors: sanitizedDoctors });
+        return res.status(200).json({ message: "Doctors sent via WhatsApp", doctors: sanitizedDoctors });
 
     } catch (err) {
         console.error("❌ Error in /filteredDoctorsWithSlots:", err);

@@ -18,39 +18,54 @@ WhatsappRoute.get("/filteredDoctorsWithSlots", async (req, res) => {
         const targetDateStart = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
         const targetDateEnd = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
 
-        const doctorFilters = { platformType: "marketplace" };
-
-        if (gender && gender !== 'No Preference') doctorFilters.Gender = gender;
-        if (isStudent) doctorFilters.consultsStudents = isStudent === 'true';
+        // Step 1: Fetch all marketplace doctors with other filters
+        const baseFilters = { platformType: "marketplace" };
+        if (isStudent) baseFilters.consultsStudents = isStudent === 'true';
         if (language) {
-            doctorFilters.languagesSpoken = { $elemMatch: { $regex: new RegExp(`^${language}$`, 'i') } };
+            baseFilters.languagesSpoken = { $elemMatch: { $regex: new RegExp(`^${language}$`, 'i') } };
+        }
+        const allDoctors = await DoctorSchema.find(baseFilters);
+
+        // Step 2: First filter by gender preference
+        let genderFilteredDoctors = allDoctors;
+        if (gender && gender !== 'No Preference') {
+            genderFilteredDoctors = allDoctors.filter(doc => doc.Gender === gender);
         }
 
-        const doctors = await DoctorSchema.find(doctorFilters);
-
-        const doctorsWithSlots = [];
-        for (const doctor of doctors) {
-            const schedules = await DoctorScheduleSchema.find({
-                doctor_id: doctor._id,
-                Date: { $gte: targetDateStart, $lte: targetDateEnd },
-                SlotsAvailable: { $gt: 0 }
-            });
-
-            const hasUnbookedSlots = schedules.some(schedule =>
-                schedule.Slots.some(slot => !slot.isBooked)
-            );
-
-            if (hasUnbookedSlots) {
-                doctorsWithSlots.push(doctor);
+        // Step 3: Check slot availability for the filtered set
+        async function getDoctorsWithSlots(doctorList) {
+            const result = [];
+            for (const doctor of doctorList) {
+                const schedules = await DoctorScheduleSchema.find({
+                    doctor_id: doctor._id,
+                    Date: { $gte: targetDateStart, $lte: targetDateEnd },
+                    SlotsAvailable: { $gt: 0 }
+                });
+                if (schedules.some(s => s.Slots.some(slot => !slot.isBooked))) {
+                    result.push(doctor);
+                }
             }
+            return result;
         }
 
-        // Shuffle
+        let doctorsWithSlots = await getDoctorsWithSlots(genderFilteredDoctors);
+
+        // Step 4: If less than 3 available, fetch from the *other gender*
+        if (doctorsWithSlots.length < 3) {
+            const otherGenderDocs = allDoctors.filter(doc => doc.Gender !== gender);
+            const othersWithSlots = await getDoctorsWithSlots(otherGenderDocs);
+
+            // Merge without duplicates
+            doctorsWithSlots = [...doctorsWithSlots, ...othersWithSlots.filter(
+                doc => !doctorsWithSlots.some(d => d._id.equals(doc._id))
+            )];
+        }
+
+        // Step 5: Shuffle and paginate
         for (let i = doctorsWithSlots.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [doctorsWithSlots[i], doctorsWithSlots[j]] = [doctorsWithSlots[j], doctorsWithSlots[i]];
         }
-
         const paginatedDoctors = doctorsWithSlots.slice((page - 1) * limit, page * limit);
 
         if (paginatedDoctors.length < 3) {

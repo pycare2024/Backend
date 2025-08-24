@@ -8,6 +8,7 @@ const AppointmentRecordsSchema = require("../model/AppointmentRecordsSchema");
 const DoctorAccountsSchema = require("../model/DoctorAccountsSchema");
 const DoctorTransactionsSchema = require("../model/DoctorTransactionsSchema");
 const DoctorSchema = require("../model/DoctorSchema"); // assumed name
+const PriceSchema = require("../model/PriceSchema");
 
 AdminRoute.get("/companyAccountsSummary", async (req, res) => {
     try {
@@ -237,5 +238,31 @@ AdminRoute.post("/resetPassword", async (req, res) => {
     }
 });
 
+
+// Add new price
+AdminRoute.post("/add-price", async (req, res) => {
+  try {
+    const { label, amount } = req.body;
+    const price = new PriceSchema({ label, amount });
+    await price.save();
+    res.json({ success: true, price });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get all active prices
+AdminRoute.get("/prices", async (req, res) => {
+  const prices = await PriceSchema.find({ active: true }).sort({ createdAt: -1 });
+  res.json(prices);
+});
+
+// Update or deactivate price
+AdminRoute.put("/update-price/:id", async (req, res) => {
+  const { id } = req.params;
+  const { label, amount, active } = req.body;
+  const updated = await PriceSchema.findByIdAndUpdate(id, { label, amount, active }, { new: true });
+  res.json(updated);
+});
 
 module.exports = AdminRoute;

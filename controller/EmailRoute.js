@@ -16,9 +16,9 @@ const upload = multer({ storage });
 EmailRoute.post("/send-single", upload.fields([
   { name: "attachments", maxCount: 10 }
 ]), async (req, res) => {
-  const { fromEmail, fromPassword, subject, template, recipient } = req.body;
+  const { fromEmail, fromPassword, fromName, subject, template, recipient } = req.body;
 
-  console.log("🔐 Sender:", fromEmail);
+  console.log("🔐 Sender:", fromEmail, "| Name:", fromName || "Auto-derived");
   console.log("📧 Subject Template:", subject?.substring(0, 80));
   console.log("📝 Body Template:", template?.substring(0, 80));
   console.log("📦 Attachments:", req.files?.attachments?.map(f => f.originalname));
@@ -62,6 +62,7 @@ EmailRoute.post("/send-single", upload.fields([
     const response = await sendEmail({
       fromEmail,
       fromPassword,
+      fromName,  // 👈 dynamic sender name
       to: parsedRecipient.email,
       subject: personalizedSubject,
       html: personalizedTemplate,

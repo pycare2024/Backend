@@ -6,12 +6,21 @@ const nodemailer = require("nodemailer");
  * @param {Object} options - Email sending options
  * @param {string} options.fromEmail - Sender email
  * @param {string} options.fromPassword - Sender password
+ * @param {string} options.fromName - Sender display name (optional)
  * @param {string} options.to - Recipient email
  * @param {string} options.subject - Email subject
  * @param {string} options.html - HTML body
  * @param {Array} options.attachments - Attachments (optional)
  */
-const sendEmail = async ({ fromEmail, fromPassword, to, subject, html, attachments = [] }) => {
+const sendEmail = async ({
+  fromEmail,
+  fromPassword,
+  fromName,
+  to,
+  subject,
+  html,
+  attachments = [],
+}) => {
   const transporter = nodemailer.createTransport({
     host: "smtpout.secureserver.net",
     port: 587,
@@ -23,7 +32,7 @@ const sendEmail = async ({ fromEmail, fromPassword, to, subject, html, attachmen
   });
 
   const mailOptions = {
-    from: `"PsyCare" <${fromEmail}>`,
+    from: `"${fromName || fromEmail.split("@")[0]}" <${fromEmail}>`, // dynamic sender name
     to,
     subject,
     html,

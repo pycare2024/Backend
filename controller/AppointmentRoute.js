@@ -1759,5 +1759,15 @@ AppointmentRoute.post("/upload-student-id", upload.any(), async (req, res) => {
     }
 });
 
+AppointmentRoute.get("/cities", async (req, res) => {
+  try {
+    const cities = await DoctorSchema.distinct("City"); 
+    cities.sort((a, b) => a.localeCompare(b));
+    res.json(cities);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch cities" });
+  }
+});
+
 module.exports = AppointmentRoute;
 

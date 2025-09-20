@@ -45,17 +45,107 @@ WebinarRoute.get("/:id", async (req, res) => {
   }
 });
 
-// Enroll a patient into a webinar
+// Create a new webinar
+WebinarRoute.post("/create", async (req, res) => {
+  try {
+    const {
+      webinar_id,
+      title,
+      description,
+      speaker,
+      date,
+      startTime,
+      endTime,
+      meeting_link,
+      price,
+      category,
+      thumbnailUrl,
+      maxSeats,
+    } = req.body;
+
+    if (!webinar_id || !title || !description || !speaker || !date || !startTime || !endTime) {
+      return res.status(400).json({ message: "All required fields must be provided." });
+    }
+
+    const webinar = new WebinarSchema({
+      webinar_id,
+      title,
+      description,
+      speaker,
+      date,
+      startTime,
+      endTime,
+      meeting_link,
+      price,
+      category,
+      thumbnailUrl,
+      maxSeats,
+    });
+
+    await webinar.save();
+
+    return res.status(201).json({ message: "Webinar created successfully.", webinar });
+  } catch (err) {
+    console.error("Error creating webinar:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// Update a webinar
+WebinarRoute.put("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid webinar ID." });
+    }
+
+    const updatedWebinar = await WebinarSchema.findByIdAndUpdate(id, req.body, { new: true });
+
+    if (!updatedWebinar) {
+      return res.status(404).json({ message: "Webinar not found." });
+    }
+
+    return res.status(200).json({ message: "Webinar updated successfully.", webinar: updatedWebinar });
+  } catch (err) {
+    console.error("Error updating webinar:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// Delete a webinar
+WebinarRoute.delete("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid webinar ID." });
+    }
+
+    const deletedWebinar = await WebinarSchema.findByIdAndDelete(id);
+
+    if (!deletedWebinar) {
+      return res.status(404).json({ message: "Webinar not found." });
+    }
+
+    return res.status(200).json({ message: "Webinar deleted successfully." });
+  } catch (err) {
+    console.error("Error deleting webinar:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+//Enroll into a Webinar
 WebinarRoute.post("/enroll", async (req, res) => {
   try {
-    const { webinar_id, patient_id } = req.body;
+    const { webinar_name, patient_id } = req.body;
 
-    if (!webinar_id || !patient_id) {
+    if (!webinar_name || !patient_id) {
       return res.status(400).json({ message: "Missing required fields." });
     }
 
-    // Validate Webinar using string webinar_id
-    const webinar = await WebinarSchema.findOne({ webinar_id });
+    // Find webinar by name (title)
+    const webinar = await WebinarSchema.findOne({ title: webinar_name });
     if (!webinar) {
       return res.status(404).json({ message: "Webinar not found." });
     }
@@ -75,9 +165,9 @@ WebinarRoute.post("/enroll", async (req, res) => {
     const basePrice = webinar.price || 0;
     const finalPrice = basePrice + Math.round(basePrice * 0.18);
 
-    // Create booking (pending payment)
+    // Use the string webinar_id from DB
     const booking = await new WebinarBooking({
-      webinar_id, // string ID
+      webinar_id: webinar.webinar_id, // string ID from WebinarSchema
       patient_id,
       pateint_name: patient.Name,
       payment_status: "pending",
@@ -85,16 +175,16 @@ WebinarRoute.post("/enroll", async (req, res) => {
 
     // Generate Razorpay payment link
     const paymentLink = await razorpay.paymentLink.create({
-      amount: 1* 100, // Razorpay expects paise
+      amount: finalPrice * 100, // Razorpay expects paise
       currency: "INR",
       accept_partial: false,
       description: `Enrollment for webinar: ${webinar.title}`,
       reference_id: `webinar_booking_${booking._id}`,
       notify: { sms: true },
       notes: {
-        booking_id: booking._id.toString(),  // use booking MongoDB _id for webhook
+        booking_id: booking._id.toString(),  // booking MongoDB _id
         patient_id: patient._id.toString(),
-        webinar_id: webinar_id, 
+        webinar_id: webinar.webinar_id,   
       },
     });
 
@@ -107,6 +197,7 @@ WebinarRoute.post("/enroll", async (req, res) => {
       bookingId: booking._id,
       paymentLink: paymentLink.short_url,
       webinarTitle: webinar.title,
+      webinarId: webinar.webinar_id
     });
   } catch (err) {
     console.error("❌ Error enrolling in webinar:", err);
@@ -184,11 +275,4 @@ WebinarRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
 });
 
 
-
 module.exports = WebinarRoute;
-
-
-
-
-
-

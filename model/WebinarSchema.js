@@ -7,7 +7,7 @@ const WebinarSchema = new mongoose.Schema({
     title: { type: String, required: true },
     description: { type: String, required: true },
 
-    speaker: { type: ObjectId, ref: "Doctor", required: true }, // or Instructor/Doctor
+    speaker: { type: ObjectId, ref: "DoctorSchema", required: true }, // or Instructor/Doctor
     date: { type: Date, required: true },
     startTime: { type: String, required: true },
     endTime: { type: String, required: true },
@@ -21,7 +21,7 @@ const WebinarSchema = new mongoose.Schema({
     maxSeats: { type: Number, default: 100 },
 
     // track registered patients
-    attendees: [{ type: ObjectId, ref: "Patient" }],
+    attendees: [{ type: ObjectId, ref: "patientSchema" }],
 }, 
 { timestamps: true, collection: "Webinars" });
 

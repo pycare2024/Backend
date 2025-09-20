@@ -4,7 +4,7 @@ const WebinarSchema = require("../model/WebinarSchema");
 const patientSchema = require("../model/patientSchema");
 const razorpay = require("../razorpay");
 const WebinarBooking = require("../model/WebinarBooking");
-
+const crypto = require("crypto");
 const WebinarRoute = express.Router();
 
 
@@ -85,7 +85,7 @@ WebinarRoute.post("/enroll", async (req, res) => {
 
     // Generate Razorpay payment link
     const paymentLink = await razorpay.paymentLink.create({
-      amount: finalPrice * 100, // Razorpay expects paise
+      amount: 1* 100, // Razorpay expects paise
       currency: "INR",
       accept_partial: false,
       description: `Enrollment for webinar: ${webinar.title}`,
@@ -113,6 +113,75 @@ WebinarRoute.post("/enroll", async (req, res) => {
     return res.status(500).json({ message: "Internal server error.", error: err.message });
   }
 });
+
+const RAZORPAY_WEBHOOK_SECRET = "PsyCare@WebinarPayments"; // set same in Razorpay dashboard
+
+// Razorpay Webhook for Payment Verification
+WebinarRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
+  try {
+    const receivedSignature = req.headers["x-razorpay-signature"];
+    const body = JSON.stringify(req.body);
+
+    // Step 1: Verify webhook signature
+    const expectedSignature = crypto
+      .createHmac("sha256", RAZORPAY_WEBHOOK_SECRET)
+      .update(body)
+      .digest("hex");
+
+    if (receivedSignature !== expectedSignature) {
+      console.error("❌ Invalid webhook signature");
+      return res.status(400).json({ message: "Invalid signature" });
+    }
+
+    const event = req.body.event;
+    const payload = req.body.payload;
+
+    // Step 2: Handle payment link paid event
+    if (event === "payment_link.paid") {
+      const notes = payload.payment_link.entity.notes;
+      const bookingId = notes.booking_id;
+      const patientId = notes.patient_id;
+      const webinarId = notes.webinar_id;
+
+      console.log("✅ Payment success for booking:", bookingId);
+
+      // Update booking status
+      const booking = await WebinarBooking.findByIdAndUpdate(
+        bookingId,
+        { payment_status: "paid" },
+        { new: true }
+      );
+
+      if (booking) {
+        // Add patient to webinar attendees
+        await WebinarSchema.findOneAndUpdate(
+          { webinar_id: webinarId },
+          { $addToSet: { attendees: patientId } }
+        );
+      }
+    }
+
+    // Step 3: Handle failed / expired cases
+    if (event === "payment_link.expired" || event === "payment_link.cancelled") {
+      const notes = req.body.payload.payment_link.entity.notes;
+      const bookingId = notes.booking_id;
+
+      console.log("⚠️ Payment expired/cancelled for booking:", bookingId);
+
+      await WebinarBooking.findByIdAndUpdate(
+        bookingId,
+        { payment_status: "failed" }
+      );
+    }
+
+    return res.status(200).json({ status: "ok" });
+  } catch (err) {
+    console.error("❌ Error in webhook:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+
 
 module.exports = WebinarRoute;
 

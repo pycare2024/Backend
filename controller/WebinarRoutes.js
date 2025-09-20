@@ -143,12 +143,14 @@ WebinarRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
       const patientId = notes.patient_id;
       const webinarId = notes.webinar_id;
 
+      const paymentId = req.body.payload.payment.entity.id;
+
       console.log("✅ Payment success for booking:", bookingId);
 
       // Update booking status
       const booking = await WebinarBooking.findByIdAndUpdate(
         bookingId,
-        { payment_status: "paid" },
+        { payment_status: "paid" , payment_id: paymentId },
         { new: true }
       );
 

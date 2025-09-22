@@ -1283,4 +1283,28 @@ CorporateRoute.post("/bulk-insert", async (req, res) => {
   }
 });
 
+CorporateRoute.get("/corporate/:companyCode", async (req, res) => {
+  try {
+    const { companyCode } = req.params;
+
+    if (!companyCode) {
+      return res.status(400).json({ message: "Company code is required." });
+    }
+
+    // Find the corporate by companyCode
+    const corporate = await Corporate.findOne({ companyCode }).lean();
+
+    if (!corporate) {
+      return res.status(404).json({ message: "Corporate not found." });
+    }
+
+    // Return the corporate data
+    res.status(200).json(corporate);
+
+  } catch (error) {
+    console.error("Error fetching corporate:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
 module.exports = CorporateRoute;

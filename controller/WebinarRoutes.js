@@ -8,6 +8,10 @@ const crypto = require("crypto");
 const WebinarRoute = express.Router();
 
 
+const WATI_API_URL = "https://live-mt-server.wati.io/387357/api/v2/sendTemplateMessage";
+const WATI_API_KEY = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhZmY3OWIzZC0wY2FjLTRlMjEtOThmZC1hNTExNGQyYzBlOTEiLCJ1bmlxdWVfbmFtZSI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsIm5hbWVpZCI6ImNvbnRhY3R1c0Bwc3ktY2FyZS5pbiIsImVtYWlsIjoiY29udGFjdHVzQHBzeS1jYXJlLmluIiwiYXV0aF90aW1lIjoiMDEvMDEvMjAyNSAwNTo0NzoxOCIsInRlbmFudF9pZCI6IjM4NzM1NyIsImRiX25hbWUiOiJtdC1wcm9kLVRlbmFudHMiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBRE1JTklTVFJBVE9SIiwiZXhwIjoyNTM0MDIzMDA4MDAsImlzcyI6IkNsYXJlX0FJIiwiYXVkIjoiQ2xhcmVfQUkifQ.e4BgIPZN_WI1RU4VkLoyBAndhzW8uKntWnhr4K-J9K0"; // Replace with actual token
+
+
 // Get all webinars
 WebinarRoute.get("/", async (req, res) => {
   try {
@@ -135,7 +139,7 @@ WebinarRoute.delete("/:id", async (req, res) => {
   }
 });
 
-//Enroll into a Webinar
+// Enroll into a Webinar
 WebinarRoute.post("/enroll", async (req, res) => {
   try {
     const { webinar_name, patient_id } = req.body;
@@ -165,9 +169,9 @@ WebinarRoute.post("/enroll", async (req, res) => {
     const basePrice = webinar.price || 0;
     const finalPrice = basePrice + Math.round(basePrice * 0.18);
 
-    // Use the string webinar_id from DB
+    // Create booking (pending payment)
     const booking = await new WebinarBooking({
-      webinar_id: webinar.webinar_id, // string ID from WebinarSchema
+      webinar_id: webinar.webinar_id,
       patient_id,
       pateint_name: patient.Name,
       payment_status: "pending",
@@ -175,16 +179,16 @@ WebinarRoute.post("/enroll", async (req, res) => {
 
     // Generate Razorpay payment link
     const paymentLink = await razorpay.paymentLink.create({
-      amount: finalPrice * 100, // Razorpay expects paise
+      amount: 1 * 100,
       currency: "INR",
       accept_partial: false,
       description: `Enrollment for webinar: ${webinar.title}`,
       reference_id: `webinar_booking_${booking._id}`,
       notify: { sms: true },
       notes: {
-        booking_id: booking._id.toString(),  // booking MongoDB _id
+        booking_id: booking._id.toString(),
         patient_id: patient._id.toString(),
-        webinar_id: webinar.webinar_id,   
+        webinar_id: webinar.webinar_id,
       },
     });
 
@@ -192,8 +196,46 @@ WebinarRoute.post("/enroll", async (req, res) => {
     booking.payment_link_id = paymentLink.id;
     await booking.save();
 
+    // ✅ Trigger WhatsApp message via WATI
+    const payload = {
+      template_name: "paymentlinks", // your approved template
+      broadcast_name: "webinar_payment",
+      parameters: [
+        { name: "name", value: patient.Name },
+        { name: "program_name", value: "Webinar" },
+        { name: "webinar_name", value: webinar.title },
+        { name: "payment_link", value: paymentLink.short_url }
+      ]
+    };
+
+    const whatsappResponse = await fetch(
+      `${WATI_API_URL}?whatsappNumber=${patient.Mobile}`, // <-- patient phone field
+      {
+        method: "POST",
+        headers: {
+          "Authorization": WATI_API_KEY, // no Bearer prefix
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      }
+    );
+
+    let waResp;
+    try {
+      const text = await whatsappResponse.text();
+      waResp = text ? JSON.parse(text) : null;
+    } catch (e) {
+      waResp = { raw: await whatsappResponse.text() };
+    }
+
+    if (!whatsappResponse.ok) {
+      console.error("❌ Failed to send WhatsApp payment link:", waResp);
+    } else {
+      console.log("✅ WhatsApp payment link sent:", waResp);
+    }
+
     return res.status(200).json({
-      message: "Webinar booking initiated. Awaiting payment.",
+      message: "Webinar booking initiated. Payment link sent via WhatsApp.",
       bookingId: booking._id,
       paymentLink: paymentLink.short_url,
       webinarTitle: webinar.title,

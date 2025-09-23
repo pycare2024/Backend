@@ -300,7 +300,7 @@ WebinarRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
         if (patient && patient.Mobile) {
           // ✅ WATI Template Payload
           const payload = {
-            template_name: "webinar_payment_success", // must be approved in WATI
+            template_name: "payment_successfull", // must be approved in WATI
             broadcast_name: "webinar_payment",
             parameters: [
               { name: "name", value: patient.Name },

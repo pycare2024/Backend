@@ -283,7 +283,7 @@ WebinarRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
       // Update booking status
       const booking = await WebinarBooking.findByIdAndUpdate(
         bookingId,
-        { payment_status: "paid" , payment_id: paymentId },
+        { payment_status: "paid", payment_id: paymentId },
         { new: true }
       );
 
@@ -293,6 +293,37 @@ WebinarRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
           { webinar_id: webinarId },
           { $addToSet: { attendees: patientId } }
         );
+
+        // Fetch patient details for WhatsApp
+        const patient = await patientSchema.findById(patientId);
+
+        if (patient && patient.Mobile) {
+          // ✅ WATI Template Payload
+          const payload = {
+            template_name: "webinar_payment_success", // must be approved in WATI
+            broadcast_name: "webinar_payment",
+            parameters: [
+              { name: "name", value: patient.Name },
+              { name: "payment_id", value: paymentId }
+            ]
+          };
+
+          // Send WhatsApp message
+          const whatsappResponse = await fetch(
+            `${WATI_API_URL}?whatsappNumber=${patient.Mobile}`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: WATI_API_KEY, // no Bearer
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(payload),
+            }
+          );
+
+          const text = await whatsappResponse.text();
+          console.log("📩 WhatsApp Response:", text);
+        }
       }
     }
 
@@ -303,10 +334,9 @@ WebinarRoute.post("/razorpay-webhook", express.json(), async (req, res) => {
 
       console.log("⚠️ Payment expired/cancelled for booking:", bookingId);
 
-      await WebinarBooking.findByIdAndUpdate(
-        bookingId,
-        { payment_status: "failed" }
-      );
+      await WebinarBooking.findByIdAndUpdate(bookingId, {
+        payment_status: "failed",
+      });
     }
 
     return res.status(200).json({ status: "ok" });
